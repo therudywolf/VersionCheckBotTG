@@ -1,19 +1,26 @@
 import re
-from typing import List, Optional, Tuple
-_SPLIT = re.compile(r'[\s,;\n]+')
-def parse(text: str) -> List[Tuple[str, Optional[str]]]:
-    t = [x.strip() for x in _SPLIT.split(text) if x.strip()]
+from typing import List, Tuple, Optional
+
+_SEP = re.compile(r'[\s,;\n]+')
+
+def parse(text:str) -> List[Tuple[str, Optional[str]]]:
+    raw = [t.strip() for t in _SEP.split(text) if t.strip()]
     out = []
-    i = 0
-    while i < len(t):
-        token = t[i]
+    i=0
+    while i < len(raw):
+        tok = raw[i]
         ver = None
-        if i+1<len(t) and t[i+1][0].isdigit():
-            ver = t[i+1]; i+=1
+        if i+1 < len(raw) and raw[i+1][0].isdigit():
+            ver = raw[i+1]; i+=1
         else:
-            m = re.match(r'^([a-zA-Z][\w\-_]*?)(\d[\w.\-]*)$', token)
-            if m:
-                token, ver = m.groups()
-        out.append((token.lower(), ver))
+            m = re.match(r'^([a-zA-Z][\w\-]*?)(\d[\w.\-]*)$', tok)
+            if m: tok, ver = m.groups()
+        out.append((tok.lower(), ver))
         i+=1
-    return out
+    # deduplicate preserving order
+    seen=set(); result=[]
+    for s,v in out:
+        key=(s,v)
+        if key not in seen:
+            seen.add(key); result.append((s,v))
+    return result
