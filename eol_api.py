@@ -1,4 +1,4 @@
-import datetime as dt
+import datetime as _dt
 from typing import Optional
 import aiohttp
 
