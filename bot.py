@@ -1,134 +1,84 @@
-import asyncio
-import logging
-from typing import List, Optional, Tuple
-
+import asyncio, logging
 from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    InlineQueryHandler,
-    MessageHandler,
-    filters,
-)
-
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, InlineQueryHandler, ContextTypes, filters
 from config import settings
-from eol_service import EolService
-from parser import parse_query
-from fuzzy import find_best
+from eol_service import Eol
+from parser import parse
+from fuzzy import suggest
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+eol = Eol()
 
-eol_service: Optional[EolService] = None
-
-async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Я проверяю актуальность версий ПО (данные endoflife.date).\n"
-        "Отправь мне, например:  `python 3.12, nodejs, nginx`\n"
-        "Или используй inline: `@%s nodejs 20`" % context.bot.username,
-        parse_mode='Markdown',
+        "Я проверяю поддерживаемость версий ПО.\n"
+        "Пример: nodejs 22, python\n"
+        "Inline: @%s nginx" % ctx.bot.username
     )
 
-async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "/check <список> — проверить версии\n"
-        "/reload — обновить кэш slugs\n"
-        "Inline режим: @botname <slug> [версия]",
-    )
+async def check_cmd(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
+    text = " ".join(ctx.args)
+    await respond(update, text)
 
-async def on_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    qry = " ".join(context.args)
-    await handle_text(update, context, qry)
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    if not text.strip():
-        await update.message.reply_text("Нечего проверять 🧐")
-        return
-    items = parse_query(text)
+async def respond(update:Update, text:str):
+    items = parse(text)
     if not items:
-        await update.message.reply_text("Не смог распознать продукты во входных данных.")
+        await update.message.reply_text("Не распознал продукты.")
         return
-    tasks = [eol_service.get_status(slug, ver) for slug, ver in items]
-    statuses = await asyncio.gather(*tasks)
-    await update.message.reply_text("\n".join(statuses))
+    res = await asyncio.gather(*(eol.status(s,v) for s,v in items))
+    await update.message.reply_text("\n".join(res))
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await handle_text(update, context, update.message.text or "")
+async def on_msg(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
+    await respond(update, update.message.text or "")
 
-async def on_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if doc.mime_type != "text/plain":
-        await update.message.reply_text("Пока читаю только текстовые .txt файлы.")
+async def on_inline(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
+    q = update.inline_query.query.strip()
+    if not q:
         return
-    file = await doc.get_file()
-    content = await file.download_as_bytes()
-    await handle_text(update, context, content.decode("utf-8", errors="ignore"))
-
-async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.inline_query.query.strip()
-    if not query:
+    item = parse(q)[:1]
+    if not item:
         return
-    items = parse_query(query)
-    if not items:
-        return
-    slug, ver = items[0]
-    # find best slugs suggestions
-    slugs = await eol_service.list_products()
-    matches = find_best(slug, slugs, limit=5)
+    slug, ver = item[0]
+    choices = await eol.list_products()
+    options = suggest(slug, choices, 5)
     results = []
-    idx = 0
-    for match_slug, score in matches:
-        status = await eol_service.get_status(match_slug, ver)
+    for idx,(s,_) in enumerate(options):
+        st = await eol.status(s, ver)
         results.append(
             InlineQueryResultArticle(
-                id=f"{idx}",
-                title=status.split("→")[0].strip("🔹 "),
-                description=status,
-                input_message_content=InputTextMessageContent(status),
+                id=str(idx),
+                title=st.split("→")[0].strip("🔹 "),
+                description=st,
+                input_message_content=InputTextMessageContent(st),
             )
         )
-        idx += 1
-    await update.inline_query.answer(results, cache_time=300, is_personal=False)
+    await update.inline_query.answer(results, cache_time=300)
 
-async def reload_cache(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await eol_service._ensure_products()
-    await update.message.reply_text("Кэш перечня продуктов обновлён.")
+async def reload_cmd(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
+    await eol.list_products()
+    await update.message.reply_text("Список обновлён.")
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    log.exception("Unhandled exception: %s", context.error)
+async def err(update, ctx:ContextTypes.DEFAULT_TYPE):
+    log.exception("Err: %s", ctx.error)
     if isinstance(update, Update) and update.message:
-        await update.message.reply_text("😔 Ошибка сервера. Попробуйте позже.")
+        await update.message.reply_text("Ошибка сервера.")
 
-async def main():
-    global eol_service
-    eol_service = await EolService().__aenter__()
+def main():
+    if not settings.BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN env missing")
+    app = ApplicationBuilder().token(settings.BOT_TOKEN).concurrent_updates(True).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("check", check_cmd))
+    app.add_handler(CommandHandler("reload", reload_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_msg))
+    app.add_handler(InlineQueryHandler(on_inline))
+    app.add_error_handler(err)
+    log.info("run")
+    app.run_polling(close_loop=False)
 
-    app = (
-        ApplicationBuilder()
-        .token(settings.BOT_TOKEN)
-        .concurrent_updates(True)
-        .build()
-    )
-
-    app.add_handler(CommandHandler("start", on_start))
-    app.add_handler(CommandHandler("help", on_help))
-    app.add_handler(CommandHandler("check", on_check_command))
-    app.add_handler(CommandHandler("reload", reload_cache))
-    app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), on_file))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.add_handler(InlineQueryHandler(inline_query))
-    app.add_error_handler(error_handler)
-
-    log.info("Bot launched")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    # run until Ctrl+C
-    await app.updater.idle()
-    await app.stop()
-    await app.shutdown()
-    await eol_service.__aexit__(None, None, None)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__=="__main__":
+    try:
+        main()
+    finally:
+        asyncio.run(eol.close())

@@ -1,23 +1,19 @@
 import re
 from typing import List, Optional, Tuple
-
-_TOKEN_SPLIT = re.compile(r'[\s,;\n]+')
-
-def parse_query(raw: str) -> List[Tuple[str, Optional[str]]]:
-    """Return list of (product_slug, version|None)."""
-    tokens = [t.strip() for t in _TOKEN_SPLIT.split(raw) if t.strip()]
+_SPLIT = re.compile(r'[\s,;\n]+')
+def parse(text: str) -> List[Tuple[str, Optional[str]]]:
+    t = [x.strip() for x in _SPLIT.split(text) if x.strip()]
     out = []
     i = 0
-    while i < len(tokens):
-        tok = tokens[i]
+    while i < len(t):
+        token = t[i]
         ver = None
-        if i + 1 < len(tokens) and tokens[i + 1][0].isdigit():
-            ver = tokens[i + 1]
-            i += 1
+        if i+1<len(t) and t[i+1][0].isdigit():
+            ver = t[i+1]; i+=1
         else:
-            m = re.match(r'^([a-zA-Z][a-zA-Z0-9\-_]*)(\d[\w\.-]*)$', tok)
+            m = re.match(r'^([a-zA-Z][\w\-_]*?)(\d[\w.\-]*)$', token)
             if m:
-                tok, ver = m.groups()
-        out.append((tok.lower(), ver))
-        i += 1
+                token, ver = m.groups()
+        out.append((token.lower(), ver))
+        i+=1
     return out
