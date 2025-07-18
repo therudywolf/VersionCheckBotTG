@@ -1,37 +1,21 @@
-# Telegram EOL Bot
+# Telegram EOL Bot (v2)
 
-Бот для проверки сроков поддержки ПО через API https://endoflife.date/ с:
-- Inline режимом
-- Кешированием (aiocache)
-- Расширенным парсером названий и версий
-- Локализацией (рус.)
+Telegram‑бот для быстрой проверки, поддерживается ли версия ПО,
+использует публичный API `endoflife.date`.
 
-## Установка
-
-```bash
-git clone https://github.com/your/repo.git
-cd telegram_eol_bot
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Конфигурация
-
-Создайте файл `.env` рядом с `main.py`:
-```
-BOT_TOKEN=ваш_токен
-```
+## Изменения
+* Исправлен базовый URL API (`https://endoflife.date/api/<slug>.json`).
+* Обновлены инструкции и Docker Compose.
 
 ## Запуск
 
 ```bash
-python main.py
+cp .env.example .env  # укажите BOT_TOKEN
+docker compose up --build -d
 ```
 
-## Docker
-
-```bash
-docker build -t telegram-eol-bot .
-docker run -d --env BOT_TOKEN=ваш_токен telegram-eol-bot
+## Использование
 ```
+nodejs 22, nginx, go1.22
+```
+Или inline: `@your_bot python 3.13`.
