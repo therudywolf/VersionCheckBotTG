@@ -1,84 +1,94 @@
-import asyncio, logging
+import asyncio, logging, math
 from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, InlineQueryHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, InlineQueryHandler, filters
 from config import settings
-from eol_service import Eol
+from eol_service import EolService
 from parser import parse
 from fuzzy import suggest
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-eol = Eol()
+svc = EolService()
 
-async def start(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await u.message.reply_markdown(
         "Я проверяю поддерживаемость версий ПО.\n"
-        "Пример: nodejs 22, python\n"
-        "Inline: @%s nginx" % ctx.bot.username
-    )
+        "*Примеры:*  `nodejs 22, python`\n"
+        "*Inline:*   `@%s nodejs`" % c.bot.username)
 
-async def check_cmd(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
-    text = " ".join(ctx.args)
-    await respond(update, text)
-
-async def respond(update:Update, text:str):
+async def reply_status(u:Update, text:str):
     items = parse(text)
     if not items:
-        await update.message.reply_text("Не распознал продукты.")
+        await u.message.reply_text("Не распознал продукты.")
         return
-    res = await asyncio.gather(*(eol.status(s,v) for s,v in items))
-    await update.message.reply_text("\n".join(res))
+    if len(items)==1 and items[0][1] is None:
+        # show table view
+        slug,_ = items[0]
+        data = await svc.release_data(slug)
+        if data is None:
+            await u.message.reply_text(f"❌ {slug}: не найдено")
+            return
+        table = svc.make_table(slug, data)
+        await u.message.reply_markdown(table, disable_web_page_preview=True)
+        return
+    sem = asyncio.Semaphore(settings.MAX_PARALLEL)
+    async def task(slug,ver):
+        async with sem:
+            return await svc.status_line(slug,ver)
+    lines = await asyncio.gather(*(task(s,v) for s,v in items))
+    await u.message.reply_text("\n".join(lines))
 
-async def on_msg(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
-    await respond(update, update.message.text or "")
+async def cmd_check(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await reply_status(u," ".join(c.args))
 
-async def on_inline(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
-    q = update.inline_query.query.strip()
-    if not q:
+async def on_text(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await reply_status(u,u.message.text or "")
+
+async def on_file(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    doc=u.message.document
+    if doc.mime_type!="text/plain":
+        await u.message.reply_text("Принимаю только .txt")
         return
-    item = parse(q)[:1]
-    if not item:
-        return
-    slug, ver = item[0]
-    choices = await eol.list_products()
-    options = suggest(slug, choices, 5)
-    results = []
-    for idx,(s,_) in enumerate(options):
-        st = await eol.status(s, ver)
+    file=await doc.get_file()
+    data=await file.download_as_bytes()
+    await reply_status(u,data.decode('utf-8','ignore'))
+
+async def on_inline(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    q=u.inline_query.query.strip()
+    if not q: return
+    slug,ver=parse(q)[:1][0] if parse(q) else (q,None)
+    choices=await svc.products()
+    for s,_ in suggest(slug,choices,n=5): break
+    matches = [m for m,_ in suggest(slug, choices, n=5)]
+    results=[]
+    for idx,m in enumerate(matches):
+        status=await svc.status_line(m,ver)
         results.append(
             InlineQueryResultArticle(
                 id=str(idx),
-                title=st.split("→")[0].strip("🔹 "),
-                description=st,
-                input_message_content=InputTextMessageContent(st),
-            )
-        )
-    await update.inline_query.answer(results, cache_time=300)
+                title=status.split('→')[0].strip('✅❌ ').strip(),
+                description=status,
+                input_message_content=InputTextMessageContent(status)))
+    await u.inline_query.answer(results, cache_time=120)
 
-async def reload_cmd(update:Update, ctx:ContextTypes.DEFAULT_TYPE):
-    await eol.list_products()
-    await update.message.reply_text("Список обновлён.")
-
-async def err(update, ctx:ContextTypes.DEFAULT_TYPE):
-    log.exception("Err: %s", ctx.error)
-    if isinstance(update, Update) and update.message:
-        await update.message.reply_text("Ошибка сервера.")
+async def error(update, context):
+    log.error("Exception: %s", context.error)
 
 def main():
     if not settings.BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN env missing")
-    app = ApplicationBuilder().token(settings.BOT_TOKEN).concurrent_updates(True).build()
+        raise RuntimeError("BOT_TOKEN missing")
+    app=ApplicationBuilder().token(settings.BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("check", check_cmd))
-    app.add_handler(CommandHandler("reload", reload_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_msg))
+    app.add_handler(CommandHandler("check", cmd_check))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), on_file))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(InlineQueryHandler(on_inline))
-    app.add_error_handler(err)
-    log.info("run")
+    app.add_error_handler(error)
+    log.info("Running bot")
     app.run_polling(close_loop=False)
 
 if __name__=="__main__":
     try:
         main()
     finally:
-        asyncio.run(eol.close())
+        asyncio.run(svc.close())
