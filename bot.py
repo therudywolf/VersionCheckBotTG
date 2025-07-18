@@ -1,34 +1,85 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+import asyncio, logging
+from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, InlineQueryHandler, ContextTypes, filters
+from config import settings
+from eol_py import Eol
+from parser import parse
+from fuzzy_py import sugg
 
-async def _send_help(target, username: str):
-    help_text = (
-        "*Команды*\n"
-        "/check `<список>` — проверить вручную\n"
-        "Можно прислать .txt со списком.\n\n"
-        "*Форматы*\n"
-        "`python 3.13`, `python`\n"
-        "`nodejs22`, `nodejs 22`\n\n"
-        f"*Inline* — `@{username} nodejs`"
-    )
-    await target.reply_markdown(help_text, disable_web_page_preview=True)
+logging.basicConfig(level=logging.INFO)
+log=logging.getLogger(__name__)
+svc=Eol()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❓ Помощь", callback_data="help")]])
-    await update.message.reply_text("Hello", reply_markup=kb)
+async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await u.message.reply_markdown(
+        "Проверяю поддерживаемость версий ПО по endoflife.date.\n"
+        "*Пример:* `nodejs 22, python`\n"
+        "*Inline:*  `@%s nodejs`" % c.bot.username)
 
-async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query.data == "help":
-        await _send_help(update.callback_query.message, context.bot.username)
-        await update.callback_query.answer()
+async def respond(u:Update, txt:str):
+    items=parse(txt)
+    if not items:
+        await u.message.reply_text("Не распознал продукты.")
+        return
+    if len(items)==1:
+        slug,ver=items[0]
+        data=await svc.releases(slug)
+        if data:
+            table=svc.table(slug,data,highlight_version=ver)
+            await u.message.reply_markdown(table)
+            return
+    sem=asyncio.Semaphore(settings.MAX_PARALLEL)
+    async def job(s,v):
+        async with sem:
+            return await svc.status_line(s,v)
+    lines=await asyncio.gather(*(job(s,v) for s,v in items))
+    await u.message.reply_text("\n".join(lines))
+
+async def check_cmd(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await respond(u," ".join(c.args))
+
+async def text_msg(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    await respond(u,u.message.text or "")
+
+async def file_msg(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    doc=u.message.document
+    if doc.mime_type!="text/plain":
+        await u.message.reply_text("Нужен .txt файл.")
+        return
+    content=await (await doc.get_file()).download_as_bytes()
+    await respond(u,content.decode('utf-8','ignore'))
+
+async def inline_q(u:Update,c:ContextTypes.DEFAULT_TYPE):
+    q=u.inline_query.query.strip()
+    if not q: return
+    slug,ver=parse(q)[:1][0] if parse(q) else (q,None)
+    choices=await svc.products()
+    best=sugg(slug,choices)
+    results=[]
+    for idx,s in enumerate(best):
+        status=await svc.status_line(s,ver)
+        results.append(
+            InlineQueryResultArticle(
+                id=str(idx),
+                title=status.split('→')[0].strip('✅❌ '),
+                description=status,
+                input_message_content=InputTextMessageContent(status)))
+    await u.inline_query.answer(results, cache_time=120)
 
 def main():
-    import os
-    token = os.getenv("BOT_TOKEN")
-    app = ApplicationBuilder().token(token).build()
+    if not settings.BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN не установлен")
+    app=ApplicationBuilder().token(settings.BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(cb))
-    app.run_polling()
+    app.add_handler(CommandHandler("check", check_cmd))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), file_msg))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_msg))
+    app.add_handler(InlineQueryHandler(inline_q))
+    log.info("Run bot")
+    app.run_polling(close_loop=False)
 
-if __name__ == "__main__":
-    main()
+if __name__=="__main__":
+    try:
+        main()
+    finally:
+        asyncio.run(svc.close())
