@@ -91,44 +91,15 @@ class Eol:
         sup_flag="✅" if self._sup_ru(rel) else "❌"
         return f"{sup_flag} {slug} {cycle} → {latest} ({eol_desc})"
 
-
-    def table(self, slug: str, data, highlight_version: str | None = None, rows: int = 8) -> str:
-        """Return a nicely formatted ASCII table for Telegram Markdown messages."""
-        from tabulate import tabulate
-
-        hlver = highlight_version.lower() if highlight_version else ""
-        rows_data = []
+    def table(self, slug:str, data:List[Dict], highlight_version:Optional[str]=None, rows:int=7)->str:
+        head = f"*{slug} — релизы*\n```Релиз | Последний | Подд | EOL\n------ | -------- | ---- | ----------"
+        lines=[]
+        highlight_low = highlight_version.lower() if highlight_version else ""
         for r in data[:rows]:
-            rel    = str(r.get('cycle') or r.get('releaseCycle', '?'))
-            latest = str(r.get('latest', '?'))
-            sup    = "Да" if self._sup_ru(r) else "Нет"
-            eol    = r.get('eol') or "—"
-            marker = "▶ " if hlver and hlver in {rel.lower(), latest.lower()} else ""
-            rows_data.append([marker + rel, latest, sup, eol])
-        table_txt = tabulate(rows_data,
-                             headers=["Версия", "Последняя", "Поддержка", "EOL"],
-                             tablefmt="simple_grid",
-                             stralign="left")
-        return f"```\n{slug.upper()}\n{table_txt}\n```"
-
-
-# === Improved table function ===
-
-def table(self, slug:str, data, highlight_version:str|None=None, rows:int=8)->str:
-    """Return a nicely formatted ASCII table for Telegram Markdown messages."""
-    from tabulate import tabulate
-
-    hlver = highlight_version.lower() if highlight_version else ""
-    rows_data=[]
-    for r in data[:rows]:
-        rel     = str(r.get('cycle') or r.get('releaseCycle','?'))
-        latest  = str(r.get('latest','?'))
-        sup     = "Да" if self._sup_ru(r) else "Нет"
-        eol     = r.get('eol') or "—"
-        marker  = "▶ " if hlver and hlver in {rel.lower(), latest.lower()} else ""
-        rows_data.append([marker+rel, latest, sup, eol])
-    table_txt = tabulate(rows_data,
-                         headers=["Версия","Последняя","Поддержка","EOL"],
-                         tablefmt="simple_grid",
-                         stralign="left")
-    return f"```\n{slug.upper()}\n{table_txt}\n```"
+            rel= str(r.get('cycle') or r.get('releaseCycle','?'))
+            latest=str(r.get('latest','?'))
+            sup="Да" if self._sup_ru(r) else "Нет"
+            eol=r.get('eol') or "—"
+            marker="▶ " if highlight_low and highlight_low in {rel.lower(), latest.lower()} else "  "
+            lines.append(f"{marker}{rel:<6}| {latest:<8}| {sup:^3}| {eol}")
+        return head + "\n" + "\n".join(lines) + "```"
