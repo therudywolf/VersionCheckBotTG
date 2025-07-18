@@ -1,3 +1,4 @@
-python-telegram-bot==21.0
+python-telegram-bot==21.9
 aiohttp>=3.9
+rapidfuzz>=3.0   # опционально, для fuzzy‑поиска (легковесно)
 python-dotenv>=1.0
