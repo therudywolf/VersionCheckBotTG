@@ -2,7 +2,6 @@ import time, asyncio
 from typing import Any, Dict, Tuple
 
 class TTLCache:
-    """Async‑safe in‑memory TTL cache."""
     def __init__(self):
         self._store: Dict[str, Tuple[float, Any]] = {}
         self._lock = asyncio.Lock()
