@@ -2,9 +2,5 @@ version: "3.9"
 services:
   bot:
     build: .
-    env_file:
-      - .env
+    env_file: .env
     restart: unless-stopped
-    # Для hot‑reload в dev‑режиме раскомментируйте:
-    # volumes:
-    #   - ./:/app

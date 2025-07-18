@@ -1,13 +1,10 @@
-from typing import List
+from typing import List, Tuple
 try:
     from rapidfuzz import process, fuzz
-except ImportError:  # fallback to difflib
+    def suggest(q:str, choices:List[str], n:int=5)->List[Tuple[str,int]]:
+        return process.extract(q, choices, scorer=fuzz.WRatio, limit=n)
+except ImportError:
     import difflib
-
-    def find_best(query: str, choices: List[str], limit: int = 3):
-        matches = difflib.get_close_matches(query, choices, n=limit, cutoff=0.6)
-        return [(m, 100) for m in matches]
-
-else:
-    def find_best(query: str, choices: List[str], limit: int = 3):
-        return process.extract(query, choices, scorer=fuzz.WRatio, limit=limit)
+    def suggest(q:str, choices:List[str], n:int=5)->List[Tuple[str,int]]:
+        ms = difflib.get_close_matches(q, choices, n=n, cutoff=0.6)
+        return [(m,100) for m in ms]
