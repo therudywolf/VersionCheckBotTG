@@ -77,6 +77,62 @@ def error_handler(func):
     return wrapper
 
 
+def access_required(func):
+    """Decorator to check if user has access to bot."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update or not update.effective_user:
+            return
+        
+        user_id = update.effective_user.id
+        
+        # Check access
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            user_has_access = has_access(db, user_id)
+            if not user_has_access:
+                await update.message.reply_text(
+                    "❌ У вас нет доступа к боту.\n"
+                    "Обратитесь к администратору для получения доступа."
+                )
+                return
+        finally:
+            db.close()
+        
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
+def admin_only(func):
+    """Decorator to check if user is admin."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update or not update.effective_user:
+            return
+        
+        user_id = update.effective_user.id
+        
+        # Check legacy ADMIN_IDS from config
+        from config import settings
+        if user_id in settings.ADMIN_IDS:
+            return await func(update, context, *args, **kwargs)
+        
+        # Check database permissions
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            user_is_admin = is_admin(db, user_id)
+            if not user_is_admin:
+                await update.message.reply_text(ErrorMessages.ADMIN_ONLY)
+                return
+        finally:
+            db.close()
+        
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
 @access_required
 @rate_limit_handler
 @error_handler
@@ -470,61 +526,6 @@ async def cve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-def access_required(func):
-    """Decorator to check if user has access to bot."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        if not update or not update.effective_user:
-            return
-        
-        user_id = update.effective_user.id
-        
-        # Check access
-        db_gen = get_db()
-        db = next(db_gen)
-        try:
-            user_has_access = has_access(db, user_id)
-            if not user_has_access:
-                await update.message.reply_text(
-                    "❌ У вас нет доступа к боту.\n"
-                    "Обратитесь к администратору для получения доступа."
-                )
-                return
-        finally:
-            db.close()
-        
-        return await func(update, context, *args, **kwargs)
-    return wrapper
-
-
-def admin_only(func):
-    """Decorator to check if user is admin."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        if not update or not update.effective_user:
-            return
-        
-        user_id = update.effective_user.id
-        
-        # Check legacy ADMIN_IDS from config
-        if user_id in settings.ADMIN_IDS:
-            return await func(update, context, *args, **kwargs)
-        
-        # Check database permissions
-        db_gen = get_db()
-        db = next(db_gen)
-        try:
-            user_is_admin = is_admin(db, user_id)
-            if not user_is_admin:
-                await update.message.reply_text(ErrorMessages.ADMIN_ONLY)
-                return
-        finally:
-            db.close()
-        
-        return await func(update, context, *args, **kwargs)
-    return wrapper
-
-
 @admin_only
 @error_handler
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -552,6 +553,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_notifications = db.query(Notification).count()
         total_cves = db.query(CVERecord).count()
         
+        # Recent activity (last 24 hours)
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        recent_notifications = db.query(Notification).filter(
+            Notification.sent_at >= yesterday
+        ).count()
+        
         # Get bot mode
         current_mode = get_bot_mode(db)
         mode_emoji = "🌐" if current_mode == "open" else "🔒"
@@ -564,7 +571,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # User stats
         active_users_24h = db.query(UserStats).filter(
             UserStats.last_activity >= yesterday
-        ).count() if hasattr(UserStats, 'last_activity') else 0
+        ).count()
         
         # Top products (from query history)
         top_products_query = db.query(

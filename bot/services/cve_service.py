@@ -16,12 +16,11 @@ from bot.utils.constants import (
     SECONDS_PER_DAY
 )
 from config import settings
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 # Initialize cache with configurable path
-from config import settings
-from pathlib import Path
 
 cache_dir = Path(settings.CACHE_DIR)
 cache_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +58,7 @@ class CVEService:
     
     async def _fetch_json(self, url: str, params: Optional[Dict] = None) -> Any:
         """
-        Fetch JSON data from NVD API with retry logic.
+        Fetch JSON data from NVD API with retry logic, rate limiting, and circuit breaker.
         
         Args:
             url: Full API URL
@@ -68,6 +67,30 @@ class CVEService:
         Returns:
             Parsed JSON data
         """
+        from bot.utils.api_rate_limiter import get_api_rate_limiter, RateLimitConfig
+        from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
+        
+        # NVD API has strict rate limits: 5 requests per 30 seconds without API key
+        # With API key: 50 requests per 30 seconds
+        if settings.NVD_API_KEY:
+            rate_config = RateLimitConfig(requests_per_second=50.0/30.0, burst_size=10)
+        else:
+            rate_config = RateLimitConfig(requests_per_second=5.0/30.0, burst_size=2)
+        
+        rate_limiter = get_api_rate_limiter()
+        await rate_limiter.wait_for_api("nvd", rate_config)
+        
+        # Circuit breaker for NVD API
+        if not hasattr(self, '_circuit_breaker'):
+            self._circuit_breaker = CircuitBreaker(
+                "nvd",
+                CircuitBreakerConfig(
+                    failure_threshold=3,
+                    timeout=120.0,  # Wait 2 minutes before retry
+                    expected_exception=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
+                )
+            )
+        
         async def _fetch():
             sess = await self._session()
             log.debug(f"Fetching CVE data from {url}")
@@ -75,8 +98,12 @@ class CVEService:
                 r.raise_for_status()
                 return await r.json()
         
+        # Use circuit breaker
+        async def fetch_with_cb():
+            return await self._circuit_breaker.call(_fetch)
+        
         return await retry_async(
-            _fetch,
+            fetch_with_cb,
             max_attempts=DEFAULT_MAX_RETRIES,
             delay=DEFAULT_RETRY_DELAY * 2,  # NVD has rate limits
             backoff=DEFAULT_RETRY_BACKOFF,

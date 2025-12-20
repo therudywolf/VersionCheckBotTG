@@ -59,13 +59,15 @@ def main():
     if settings.ADMIN_IDS:
         from bot.database.db import get_db
         from bot.models.admin import Access, BotMode
-        db = next(get_db())
+        db_gen = get_db()
+        db = next(db_gen)
         try:
             # Initialize bot mode if not exists
             bot_mode = db.query(BotMode).first()
             if not bot_mode:
                 bot_mode = BotMode(mode="open")
                 db.add(bot_mode)
+                db.commit()
             
             for admin_id in settings.ADMIN_IDS:
                 existing = db.query(Access).filter(Access.user_id == admin_id).first()
@@ -80,7 +82,7 @@ def main():
                     log.info(f"Created initial admin: {admin_id}")
             db.commit()
         except Exception as e:
-            log.error(f"Error initializing admins: {e}")
+            log.error(f"Error initializing admins: {e}", exc_info=True)
             db.rollback()
         finally:
             db.close()
