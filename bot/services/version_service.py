@@ -17,8 +17,16 @@ from config import settings
 
 log = logging.getLogger(__name__)
 import asyncio
-_cache = TTLCache(persistent_file="/tmp/eol_cache.json")
-_disk = Path("/tmp/eol_products_cache_ru.json")
+
+# Initialize cache with configurable path
+from config import settings
+from pathlib import Path
+
+cache_dir = Path(settings.CACHE_DIR)
+cache_dir.mkdir(parents=True, exist_ok=True)
+
+_cache = TTLCache(persistent_file=str(cache_dir / "eol_cache.json"))
+_disk = cache_dir / "eol_products_cache_ru.json"
 
 
 class VersionService:
@@ -64,7 +72,7 @@ class VersionService:
 
     async def _fetch_json(self, path: str) -> Any:
         """
-        Fetch JSON data from API with retry logic.
+        Fetch JSON data from API with retry logic, rate limiting, and circuit breaker.
         
         Args:
             path: API path (relative to API_ROOT)
@@ -75,6 +83,24 @@ class VersionService:
         Raises:
             aiohttp.ClientError: If request fails after retries
         """
+        from bot.utils.api_rate_limiter import get_api_rate_limiter
+        from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
+        
+        # Get rate limiter for endoflife.date API
+        rate_limiter = get_api_rate_limiter()
+        await rate_limiter.wait_for_api("endoflife.date")
+        
+        # Circuit breaker for API calls
+        if not hasattr(self, '_circuit_breaker'):
+            self._circuit_breaker = CircuitBreaker(
+                "endoflife.date",
+                CircuitBreakerConfig(
+                    failure_threshold=5,
+                    timeout=60.0,
+                    expected_exception=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
+                )
+            )
+        
         async def _fetch():
             sess = await self._session()
             url = f"{settings.API_ROOT.rstrip('/')}/{path.lstrip('/')}"
@@ -83,8 +109,12 @@ class VersionService:
                 r.raise_for_status()
                 return await r.json()
         
+        # Use circuit breaker
+        async def fetch_with_cb():
+            return await self._circuit_breaker.call(_fetch)
+        
         return await retry_async(
-            _fetch,
+            fetch_with_cb,
             max_attempts=DEFAULT_MAX_RETRIES,
             delay=DEFAULT_RETRY_DELAY,
             backoff=DEFAULT_RETRY_BACKOFF,

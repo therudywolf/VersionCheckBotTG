@@ -1,6 +1,36 @@
-version: "3.9"
+version: '3.8'
+
 services:
   bot:
     build: .
     env_file: .env
     restart: unless-stopped
+    volumes:
+      - ./bot.db:/app/bot.db
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+      - ./backups:/app/backups
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; conn = sqlite3.connect('bot.db'); conn.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: PostgreSQL for production
+  # postgres:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_DB: botdb
+  #     POSTGRES_USER: botuser
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U botuser"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# volumes:
+#   postgres_data:

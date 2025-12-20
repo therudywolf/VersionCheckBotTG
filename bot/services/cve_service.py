@@ -18,7 +18,15 @@ from bot.utils.constants import (
 from config import settings
 
 log = logging.getLogger(__name__)
-_cache = TTLCache(persistent_file="/tmp/cve_cache.json")
+
+# Initialize cache with configurable path
+from config import settings
+from pathlib import Path
+
+cache_dir = Path(settings.CACHE_DIR)
+cache_dir.mkdir(parents=True, exist_ok=True)
+
+_cache = TTLCache(persistent_file=str(cache_dir / "cve_cache.json"))
 
 
 class CVEService:
@@ -303,7 +311,13 @@ class CVEService:
         return await self.search_cve(product, limit=DEFAULT_CVE_LIMIT * 4)
     
     async def close(self):
-        """Close aiohttp session."""
+        """Close aiohttp session and cleanup."""
         if self._sess and not self._sess.closed:
             await self._sess.close()
+        # Save cache to disk on close
+        if _cache:
+            try:
+                await _cache._save_to_disk()
+            except Exception as e:
+                log.warning(f"Error saving cache on close: {e}")
 

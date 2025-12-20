@@ -26,18 +26,30 @@ class Scheduler:
         self.bot = bot
         self.running = False
         self._task = None
+        
+        # Reusable service instances
+        self.version_service = None
+        self._shutdown_event = asyncio.Event()
     
     async def check_subscriptions_task(self):
         """Periodically check all subscriptions for status changes."""
         log.info("Starting subscription check task")
         
+        # Initialize reusable service
+        if not self.version_service:
+            self.version_service = VersionService()
+        
         while self.running:
             try:
+                # Check for shutdown signal
+                if self._shutdown_event.is_set():
+                    log.info("Shutdown signal received, stopping subscription check task")
+                    break
+                
                 db_gen = get_db()
                 db = next(db_gen)
                 try:
-                    version_service = VersionService()
-                    monitoring_service = MonitoringService(db, version_service)
+                    monitoring_service = MonitoringService(db, self.version_service)
                     notification_service = NotificationService(db, self.bot)
                 
                 # Check all subscriptions with batch processing
@@ -66,23 +78,45 @@ class Scheduler:
                 finally:
                     db.close()
                 
-                # Wait for next interval
-                await asyncio.sleep(settings.SCHEDULER_INTERVAL)
+                # Wait for next interval (with ability to interrupt for shutdown)
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(),
+                        timeout=settings.SCHEDULER_INTERVAL
+                    )
+                    # Shutdown signal received
+                    break
+                except asyncio.TimeoutError:
+                    # Normal timeout, continue loop
+                    pass
             except Exception as e:
                 log.error(f"Error in subscription check task: {e}", exc_info=True)
-                await asyncio.sleep(60)  # Wait 1 minute before retry
+                # Wait before retry, but check for shutdown
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=60)
+                    break
+                except asyncio.TimeoutError:
+                    pass
     
     async def check_cve_task(self):
         """Periodically check for new CVEs for subscribed products."""
         log.info("Starting CVE check task")
         
+        # Initialize reusable service
+        if not self.version_service:
+            self.version_service = VersionService()
+        
         while self.running:
             try:
+                # Check for shutdown signal
+                if self._shutdown_event.is_set():
+                    log.info("Shutdown signal received, stopping CVE check task")
+                    break
+                
                 db_gen = get_db()
                 db = next(db_gen)
                 try:
-                    version_service = VersionService()
-                    monitoring_service = MonitoringService(db, version_service)
+                    monitoring_service = MonitoringService(db, self.version_service)
                     cve_service = CVEService(db)
                     notification_service = NotificationService(db, self.bot)
                     
@@ -132,11 +166,25 @@ class Scheduler:
                 finally:
                     db.close()
                 
-                # Wait 24 hours before next check
-                await asyncio.sleep(86400)
+                # Wait 24 hours before next check (with ability to interrupt for shutdown)
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(),
+                        timeout=86400  # 24 hours
+                    )
+                    # Shutdown signal received
+                    break
+                except asyncio.TimeoutError:
+                    # Normal timeout, continue loop
+                    pass
             except Exception as e:
                 log.error(f"Error in CVE check task: {e}", exc_info=True)
-                await asyncio.sleep(3600)  # Wait 1 hour before retry
+                # Wait before retry, but check for shutdown
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=3600)
+                    break
+                except asyncio.TimeoutError:
+                    pass
     
     async def start(self):
         """Start the scheduler."""
@@ -151,19 +199,33 @@ class Scheduler:
         self._task = asyncio.create_task(self._run_tasks())
     
     async def stop(self):
-        """Stop the scheduler."""
+        """Stop the scheduler gracefully."""
         if not self.running:
             return
         
+        log.info("Stopping scheduler gracefully...")
         self.running = False
-        log.info("Stopping scheduler")
         
+        # Signal shutdown to all tasks
+        self._shutdown_event.set()
+        
+        # Close version service if initialized
+        if self.version_service:
+            await self.version_service.close()
+        
+        # Wait for tasks to finish (with timeout)
         if self._task:
-            self._task.cancel()
             try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(self._task, timeout=30)
+            except asyncio.TimeoutError:
+                log.warning("Scheduler tasks did not stop in time, cancelling...")
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+        
+        log.info("Scheduler stopped")
     
     async def _run_tasks(self):
         """Run all scheduled tasks."""

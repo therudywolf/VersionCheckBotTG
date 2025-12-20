@@ -37,15 +37,43 @@ def rate_limit_handler(func):
 
 
 def error_handler(func):
-    """Decorator for error handling in handlers."""
+    """Decorator for error handling in handlers with improved error classification."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         try:
             return await func(update, context, *args, **kwargs)
         except Exception as e:
-            log.error(f"Error in {func.__name__}: {e}", exc_info=True)
-            if update and update.message:
-                await update.message.reply_text(ErrorMessages.GENERIC_ERROR)
+            from bot.utils.exceptions import (
+                BotError, APIError, DatabaseError, ValidationError,
+                NotFoundError, PermissionError, RateLimitError
+            )
+            
+            # Log error with context
+            user_id = update.effective_user.id if update and update.effective_user else None
+            command = func.__name__
+            log.error(
+                f"Error in {command}",
+                extra={
+                    "user_id": user_id,
+                    "command": command,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                },
+                exc_info=True
+            )
+            
+            # Handle different error types
+            if isinstance(e, BotError):
+                # Use user-friendly message from custom exception
+                if update and update.message:
+                    await update.message.reply_text(e.user_message)
+            elif isinstance(e, (APIError, DatabaseError, ValidationError, NotFoundError, PermissionError, RateLimitError)):
+                if update and update.message:
+                    await update.message.reply_text(e.user_message)
+            else:
+                # Generic error handling
+                if update and update.message:
+                    await update.message.reply_text(ErrorMessages.GENERIC_ERROR)
     return wrapper
 
 
@@ -506,26 +534,23 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_gen = get_db()
     db = next(db_gen)
     try:
-        from bot.models import User, Subscription, Notification, CVERecord
-        
-        from bot.models import Admin
+        from bot.models import User, Subscription, Notification, CVERecord, QueryHistory
+        from bot.models.admin import Access, BotMode
+        from bot.models.user_stats import UserStats
+        from sqlalchemy import func, desc
         from datetime import datetime, timedelta
+        import json
+        import io
+        import csv
+        
+        # Check if export requested
+        export_format = context.args[0].lower() if context.args and context.args[0].lower() in ['json', 'csv'] else None
         
         # Get statistics
         total_users = db.query(User).count()
         active_subscriptions = db.query(Subscription).filter(Subscription.is_active == True).count()
         total_notifications = db.query(Notification).count()
         total_cves = db.query(CVERecord).count()
-        total_admins = db.query(Admin).filter(Admin.is_active == True).count()
-        
-        # Recent activity (last 24 hours)
-        yesterday = datetime.utcnow() - timedelta(days=1)
-        recent_notifications = db.query(Notification).filter(
-            Notification.sent_at >= yesterday
-        ).count()
-        
-        from bot.models.admin import Access, BotMode
-        from bot.models.user_stats import UserStats
         
         # Get bot mode
         current_mode = get_bot_mode(db)
@@ -541,9 +566,20 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             UserStats.last_activity >= yesterday
         ).count() if hasattr(UserStats, 'last_activity') else 0
         
-        # Top commands
-        top_check = db.query(UserStats).order_by(UserStats.check_commands.desc()).first()
-        top_subscribe = db.query(UserStats).order_by(UserStats.subscribe_commands.desc()).first()
+        # Top products (from query history)
+        top_products_query = db.query(
+            QueryHistory.query_text,
+            func.count(QueryHistory.id).label('count')
+        ).filter(
+            QueryHistory.timestamp >= yesterday
+        ).group_by(QueryHistory.query_text).order_by(desc('count')).limit(5).all()
+        
+        # Top commands from user stats
+        top_check_user = db.query(UserStats).order_by(desc(UserStats.check_commands)).first()
+        top_subscribe_user = db.query(UserStats).order_by(desc(UserStats.subscribe_commands)).first()
+        
+        # Total commands executed
+        total_commands = db.query(func.sum(UserStats.commands_count)).scalar() or 0
         
         stats_text = (
             f"*Статистика бота*\n\n"
@@ -555,15 +591,88 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📨 Всего уведомлений: {total_notifications}\n"
             f"🔔 Уведомлений за 24ч: {recent_notifications}\n"
             f"🔒 CVE записей: {total_cves}\n"
-            f"📊 Активных за 24ч: {active_users_24h}"
+            f"📊 Активных за 24ч: {active_users_24h}\n"
+            f"⚡ Всего команд: {total_commands}"
         )
         
-        # Add user stats if available
-        if top_check and top_check.check_commands > 0:
-            stats_text += f"\n\n*Топ команды:*\n"
-            stats_text += f"Проверок: {top_check.check_commands} (ID: {top_check.user_id})"
+        # Add top products
+        if top_products_query:
+            stats_text += "\n\n*Топ продуктов за 24ч:*"
+            for i, (product, count) in enumerate(top_products_query[:5], 1):
+                stats_text += f"\n{i}. {product[:30]} ({count}x)"
         
-        await update.message.reply_markdown(stats_text)
+        # Add top users
+        if top_check_user and top_check_user.check_commands > 0:
+            stats_text += f"\n\n*Топ пользователи:*"
+            stats_text += f"\nПроверок: {top_check_user.check_commands} (ID: {top_check_user.user_id})"
+            if top_subscribe_user and top_subscribe_user.subscribe_commands > 0:
+                stats_text += f"\nПодписок: {top_subscribe_user.subscribe_commands} (ID: {top_subscribe_user.user_id})"
+        
+        # Export if requested
+        if export_format:
+            stats_data = {
+                "mode": current_mode,
+                "users": {
+                    "total": total_users,
+                    "with_access": total_with_access,
+                    "admins": total_admins_count,
+                    "active_24h": active_users_24h
+                },
+                "subscriptions": {
+                    "active": active_subscriptions
+                },
+                "notifications": {
+                    "total": total_notifications,
+                    "recent_24h": recent_notifications
+                },
+                "cve": {
+                    "total_records": total_cves
+                },
+                "commands": {
+                    "total": total_commands
+                },
+                "top_products": [
+                    {"product": product, "count": count}
+                    for product, count in top_products_query
+                ]
+            }
+            
+            if export_format == "json":
+                json_str = json.dumps(stats_data, indent=2, ensure_ascii=False)
+                file_obj = io.BytesIO(json_str.encode('utf-8'))
+                file_obj.name = "stats.json"
+                await update.message.reply_document(
+                    document=file_obj,
+                    caption="Статистика бота (JSON)"
+                )
+            else:  # CSV
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["Metric", "Value"])
+                writer.writerow(["Mode", current_mode])
+                writer.writerow(["Total Users", total_users])
+                writer.writerow(["Users with Access", total_with_access])
+                writer.writerow(["Admins", total_admins_count])
+                writer.writerow(["Active Subscriptions", active_subscriptions])
+                writer.writerow(["Total Notifications", total_notifications])
+                writer.writerow(["Notifications 24h", recent_notifications])
+                writer.writerow(["CVE Records", total_cves])
+                writer.writerow(["Active Users 24h", active_users_24h])
+                writer.writerow(["Total Commands", total_commands])
+                writer.writerow([])
+                writer.writerow(["Top Products", "Count"])
+                for product, count in top_products_query:
+                    writer.writerow([product, count])
+                
+                csv_str = output.getvalue()
+                file_obj = io.BytesIO(csv_str.encode('utf-8'))
+                file_obj.name = "stats.csv"
+                await update.message.reply_document(
+                    document=file_obj,
+                    caption="Статистика бота (CSV)"
+                )
+        else:
+            await update.message.reply_markdown(stats_text)
     finally:
         db.close()
 
@@ -667,7 +776,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`/admin make_admin <user_id>` - Сделать администратором\n"
             "`/admin remove_admin <user_id>` - Убрать администратора\n"
             "`/admin broadcast <сообщение>` - Рассылка всем пользователям\n"
-            "`/admin export_db` - Экспорт базы данных\n"
+            "`/admin backup` - Создать backup базы данных\n"
+            "`/admin export_db` - Экспорт базы данных (alias для backup)\n"
             "`/stats` - Статистика бота"
         )
         await update.message.reply_markdown(help_text)
@@ -693,8 +803,10 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_remove_admin_command(update, context)
     elif subcommand == "broadcast":
         await admin_broadcast_command(update, context)
+    elif subcommand == "backup":
+        await admin_backup_command(update, context)
     elif subcommand == "export_db":
-        await update.message.reply_text("Экспорт БД в разработке.")
+        await admin_backup_command(update, context)  # Alias for backup
     else:
         await update.message.reply_text(f"Неизвестная команда: {subcommand}")
 
@@ -736,6 +848,102 @@ async def compare_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @rate_limit_handler
 @error_handler
+async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /health command - check bot health status."""
+    import psutil
+    import time
+    from bot.utils.cache import TTLCache
+    from bot.services.version_service import VersionService
+    
+    health_status = {
+        "status": "healthy",
+        "checks": {}
+    }
+    
+    # Check database
+    try:
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            db.execute("SELECT 1")
+            health_status["checks"]["database"] = {"status": "ok", "message": "Connected"}
+        except Exception as e:
+            health_status["checks"]["database"] = {"status": "error", "message": str(e)}
+            health_status["status"] = "unhealthy"
+        finally:
+            db.close()
+    except Exception as e:
+        health_status["checks"]["database"] = {"status": "error", "message": str(e)}
+        health_status["status"] = "unhealthy"
+    
+    # Check external APIs
+    try:
+        version_service = VersionService()
+        start_time = time.time()
+        products = await version_service.products()
+        api_time = time.time() - start_time
+        
+        if products and len(products) > 0:
+            health_status["checks"]["eol_api"] = {
+                "status": "ok",
+                "message": f"Connected ({len(products)} products)",
+                "response_time": f"{api_time:.2f}s"
+            }
+        else:
+            health_status["checks"]["eol_api"] = {"status": "warning", "message": "No products returned"}
+    except Exception as e:
+        health_status["checks"]["eol_api"] = {"status": "error", "message": str(e)}
+        health_status["status"] = "unhealthy"
+    
+    # Check cache
+    try:
+        from config import settings
+        from pathlib import Path
+        cache_dir = Path(settings.CACHE_DIR)
+        if cache_dir.exists():
+            cache_files = list(cache_dir.glob("*.json"))
+            health_status["checks"]["cache"] = {
+                "status": "ok",
+                "message": f"{len(cache_files)} cache files",
+                "directory": str(cache_dir.absolute())
+            }
+        else:
+            health_status["checks"]["cache"] = {"status": "warning", "message": "Cache directory not found"}
+    except Exception as e:
+        health_status["checks"]["cache"] = {"status": "error", "message": str(e)}
+    
+    # Check memory usage
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        health_status["checks"]["memory"] = {
+            "status": "ok",
+            "message": f"{memory_mb:.2f} MB",
+            "usage_mb": round(memory_mb, 2)
+        }
+        
+        if memory_mb > 500:  # Warning if using more than 500MB
+            health_status["checks"]["memory"]["status"] = "warning"
+    except Exception as e:
+        health_status["checks"]["memory"] = {"status": "error", "message": str(e)}
+    
+    # Format response
+    status_emoji = "✅" if health_status["status"] == "healthy" else "⚠️" if any(c.get("status") == "warning" for c in health_status["checks"].values()) else "❌"
+    
+    lines = [f"{status_emoji} *Health Status: {health_status['status'].upper()}*\n"]
+    
+    for check_name, check_data in health_status["checks"].items():
+        check_emoji = "✅" if check_data["status"] == "ok" else "⚠️" if check_data["status"] == "warning" else "❌"
+        lines.append(f"{check_emoji} *{check_name.title()}*: {check_data['message']}")
+        if "response_time" in check_data:
+            lines[-1] += f" (Response: {check_data['response_time']})"
+    
+    await update.message.reply_markdown("\n".join(lines))
+
+
+@rate_limit_handler
+@error_handler
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command."""
     help_text = (
@@ -751,7 +959,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/favorites [add|remove]` - Избранные продукты\n"
         "`/alerts` - Настройки уведомлений\n"
         "`/history` - История ваших запросов\n"
-        "`/stats` - Статистика (только для админов)\n"
+        "`/health` - Проверка состояния бота\n"
+        "`/stats [json|csv]` - Статистика (только для админов)\n"
         "`/admin` - Административные команды (только для админов)\n"
         "`/help` - Эта справка\n\n"
         "*Примеры:*\n"
