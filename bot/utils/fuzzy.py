@@ -1,8 +1,9 @@
 """Fuzzy string matching for product name suggestions."""
+from typing import List
 try:
     from rapidfuzz import process, fuzz
     
-    def sugg(query: str, choices: list, n: int = 5) -> list:
+    def sugg(query: str, choices: List[str], n: int = 5) -> List[str]:
         """
         Find best matches using rapidfuzz.
         
@@ -18,7 +19,7 @@ try:
 except ImportError:
     import difflib
     
-    def sugg(query: str, choices: list, n: int = 5) -> list:
+    def sugg(query: str, choices: List[str], n: int = 5) -> List[str]:
         """
         Find best matches using difflib (fallback).
         

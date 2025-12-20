@@ -35,15 +35,17 @@ class CVEService:
         self._sess: Optional[aiohttp.ClientSession] = None
     
     async def _session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
+        """Get or create aiohttp session with connection pooling."""
         if not self._sess:
             headers = {}
             if settings.NVD_API_KEY:
                 headers["apiKey"] = settings.NVD_API_KEY
             
+            connector = aiohttp.TCPConnector(limit=50, limit_per_host=10)
             self._sess = aiohttp.ClientSession(
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30)
+                timeout=aiohttp.ClientTimeout(total=30),
+                connector=connector
             )
         return self._sess
     

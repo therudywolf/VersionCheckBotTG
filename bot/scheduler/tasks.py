@@ -40,8 +40,8 @@ class Scheduler:
                     monitoring_service = MonitoringService(db, version_service)
                     notification_service = NotificationService(db, self.bot)
                 
-                # Check all subscriptions
-                changes = await monitoring_service.check_all_subscriptions()
+                # Check all subscriptions with batch processing
+                changes = await monitoring_service.check_all_subscriptions(batch_size=10)
                 
                 # Send notifications for changes
                 for change in changes:

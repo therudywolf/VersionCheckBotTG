@@ -1,5 +1,6 @@
 """Message handlers for text and file messages."""
 import logging
+from typing import Any
 from telegram import Update
 from telegram.ext import ContextTypes
 from functools import wraps
@@ -14,7 +15,7 @@ log = logging.getLogger(__name__)
 def error_handler(func):
     """Decorator for error handling in handlers."""
     @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any) -> Any:
         try:
             return await func(update, context, *args, **kwargs)
         except Exception as e:
@@ -27,7 +28,7 @@ def error_handler(func):
 
 
 @error_handler
-async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages."""
     if not update.message or not update.message.text:
         return
@@ -36,7 +37,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @error_handler
-async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle file messages (txt files)."""
     if not update.message or not update.message.document:
         return

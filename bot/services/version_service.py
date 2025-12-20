@@ -48,15 +48,17 @@ class VersionService:
 
     async def _session(self) -> aiohttp.ClientSession:
         """
-        Get or create aiohttp session.
+        Get or create aiohttp session with connection pooling.
         
         Returns:
-            aiohttp.ClientSession instance
+            aiohttp.ClientSession instance with connection pooling
         """
         if not self._sess:
+            connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)
             self._sess = aiohttp.ClientSession(
                 raise_for_status=True,
-                timeout=aiohttp.ClientTimeout(total=8)
+                timeout=aiohttp.ClientTimeout(total=8),
+                connector=connector
             )
         return self._sess
 

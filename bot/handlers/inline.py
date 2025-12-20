@@ -1,12 +1,20 @@
 """Inline query handlers."""
 import logging
-from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
+from typing import Any, List
+from telegram import (
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 from telegram.ext import ContextTypes
 from functools import wraps
 
 from bot.services.version_service import VersionService
 from bot.utils.parser import parse
 from bot.utils.fuzzy import sugg
+from bot.utils.constants import EMOJI_ARROW, EMOJI_CHECK, EMOJI_CROSS
 
 log = logging.getLogger(__name__)
 
@@ -14,7 +22,7 @@ log = logging.getLogger(__name__)
 def error_handler(func):
     """Decorator for error handling in handlers."""
     @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any) -> Any:
         try:
             return await func(update, context, *args, **kwargs)
         except Exception as e:
@@ -25,7 +33,7 @@ def error_handler(func):
 
 
 @error_handler
-async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline queries."""
     query = update.inline_query.query.strip()
     if not query:
@@ -44,15 +52,41 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         best = sugg(slug, choices)
         results = []
         
-        for idx, s in enumerate(best):
+        for idx, s in enumerate(best[:10]):  # Limit to 10 results
             try:
                 status = await version_service.status_line(s, ver)
+                
+                # Get more details for description
+                releases = await version_service.releases(s)
+                detail_text = status
+                if releases and len(releases) > 0:
+                    latest_release = releases[0]
+                    cycle = latest_release.get('cycle') or latest_release.get('releaseCycle', 'N/A')
+                    latest = latest_release.get('latest', 'N/A')
+                    eol = latest_release.get('eol', 'N/A')
+                    detail_text = f"{status}\nПоследний: {latest} | EOL: {eol}"
+                
+                # Create keyboard with actions
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📋 Подписаться", callback_data=f"sub_{s}_{ver or 'all'}"),
+                        InlineKeyboardButton("🔍 Детали", callback_data=f"detail_{s}_{ver or 'all'}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Clean title
+                title = status.split(EMOJI_ARROW)[0].strip(f'{EMOJI_CHECK}{EMOJI_CROSS} ')
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                
                 results.append(
                     InlineQueryResultArticle(
-                        id=str(idx),
-                        title=status.split('→')[0].strip('✅❌ '),
-                        description=status,
-                        input_message_content=InputTextMessageContent(status)
+                        id=f"{s}_{idx}",
+                        title=title,
+                        description=detail_text[:100] if len(detail_text) > 100 else detail_text,
+                        input_message_content=InputTextMessageContent(status),
+                        reply_markup=reply_markup
                     )
                 )
             except Exception as e:

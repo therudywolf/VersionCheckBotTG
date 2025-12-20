@@ -211,10 +211,13 @@ class MonitoringService:
             log.error(f"Error checking subscription {subscription.id}: {e}")
             return None
     
-    async def check_all_subscriptions(self) -> List[Dict]:
+    async def check_all_subscriptions(self, batch_size: int = 10) -> List[Dict]:
         """
-        Check all active subscriptions.
+        Check all active subscriptions with batch processing.
         
+        Args:
+            batch_size: Number of subscriptions to process in parallel
+            
         Returns:
             List of status change dictionaries
         """
@@ -223,10 +226,19 @@ class MonitoringService:
         ).all()
         
         changes = []
-        for subscription in active_subscriptions:
-            change = await self.check_subscription(subscription)
-            if change:
-                changes.append(change)
+        
+        # Process in batches for better performance
+        import asyncio
+        for i in range(0, len(active_subscriptions), batch_size):
+            batch = active_subscriptions[i:i + batch_size]
+            batch_tasks = [self.check_subscription(sub) for sub in batch]
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            for result in batch_results:
+                if isinstance(result, dict) and result:
+                    changes.append(result)
+                elif isinstance(result, Exception):
+                    log.error(f"Error checking subscription: {result}")
         
         return changes
 
