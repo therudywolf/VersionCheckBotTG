@@ -43,7 +43,8 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     doc = update.message.document
     if doc.mime_type != "text/plain":
-        await update.message.reply_text("Нужен .txt файл.")
+        from bot.utils.error_messages import ErrorMessages
+        await update.message.reply_text(ErrorMessages.FILE_INVALID_TYPE)
         return
     
     try:
@@ -51,10 +52,12 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content = await file.download_as_bytes()
         text = content.decode('utf-8', 'ignore')
         if not text.strip():
-            await update.message.reply_text("Файл пуст.")
+            from bot.utils.error_messages import ErrorMessages
+            await update.message.reply_text(ErrorMessages.FILE_EMPTY)
             return
         await respond_to_query(update, text)
     except Exception as e:
         log.error(f"Error processing file: {e}", exc_info=True)
-        await update.message.reply_text("Ошибка при обработке файла.")
+        from bot.utils.error_messages import ErrorMessages
+        await update.message.reply_text(ErrorMessages.FILE_READ_ERROR)
 

@@ -19,8 +19,11 @@ class CVERecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
-    # Index for faster lookups
+    # Indexes for faster lookups
     __table_args__ = (
         Index('idx_product_version', 'product', 'version'),
+        Index('idx_severity', 'severity'),
+        Index('idx_published_date', 'published_date'),
+        Index('idx_product_severity', 'product', 'severity'),
     )
 

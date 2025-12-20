@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional
 
 from bot.utils.cache import TTLCache
 from bot.utils.retry import retry_async
+from bot.utils.constants import (
+    EMOJI_CHECK, EMOJI_CROSS, EMOJI_ARROW, EMOJI_MARKER,
+    DEFAULT_TABLE_ROWS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY, DEFAULT_RETRY_BACKOFF
+)
 from config import settings
 
 log = logging.getLogger(__name__)
@@ -18,15 +22,37 @@ _disk = Path("/tmp/eol_products_cache_ru.json")
 
 
 class VersionService:
-    """Service for interacting with endoflife.date API."""
+    """
+    Service for interacting with endoflife.date API.
+    
+    Provides methods to check software version EOL status, get release information,
+    and format status messages for users.
+    
+    Example:
+        ```python
+        service = VersionService()
+        releases = await service.releases("python")
+        status = await service.status_line("python", "3.11")
+        ```
+    """
     
     def __init__(self):
+        """
+        Initialize VersionService.
+        
+        Creates empty session and product list. Session is created lazily on first use.
+        """
         self._sess: Optional[aiohttp.ClientSession] = None
         self._products: List[str] = []
         self._prod_ts = 0
 
     async def _session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
+        """
+        Get or create aiohttp session.
+        
+        Returns:
+            aiohttp.ClientSession instance
+        """
         if not self._sess:
             self._sess = aiohttp.ClientSession(
                 raise_for_status=True,
@@ -57,9 +83,9 @@ class VersionService:
         
         return await retry_async(
             _fetch,
-            max_attempts=3,
-            delay=1.0,
-            backoff=2.0,
+            max_attempts=DEFAULT_MAX_RETRIES,
+            delay=DEFAULT_RETRY_DELAY,
+            backoff=DEFAULT_RETRY_BACKOFF,
             exceptions=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
         )
 
@@ -190,7 +216,7 @@ class VersionService:
         """
         data = await self.releases(slug)
         if data is None:
-            return f"❌ {slug}: не найдено"
+            return f"{EMOJI_CROSS} {slug}: не найдено"
         rel = None
         if version:
             v = version.lower()
@@ -203,10 +229,10 @@ class VersionService:
         cycle = rel.get('cycle') or rel.get('releaseCycle', 'n/a')
         latest = rel.get('latest', 'n/a')
         eol_desc = self._eol_ru(rel.get('eol'), dt.date.today())
-        sup_flag = "✅" if self._is_supported(rel) else "❌"
-        return f"{sup_flag} {slug} {cycle} → {latest} ({eol_desc})"
+        sup_flag = EMOJI_CHECK if self._is_supported(rel) else EMOJI_CROSS
+        return f"{sup_flag} {slug} {cycle} {EMOJI_ARROW} {latest} ({eol_desc})"
 
-    def table(self, slug: str, data: List[Dict], highlight_version: Optional[str] = None, rows: int = 7) -> str:
+    def table(self, slug: str, data: List[Dict], highlight_version: Optional[str] = None, rows: int = DEFAULT_TABLE_ROWS) -> str:
         """
         Format release data as a markdown table.
         
@@ -227,7 +253,7 @@ class VersionService:
             latest = str(r.get('latest', '?'))
             sup = "Да" if self._is_supported(r) else "Нет"
             eol = r.get('eol') or "—"
-            marker = "▶ " if highlight_low and highlight_low in {rel.lower(), latest.lower()} else "  "
+            marker = f"{EMOJI_MARKER} " if highlight_low and highlight_low in {rel.lower(), latest.lower()} else "  "
             lines.append(f"{marker}{rel:<6}| {latest:<8}| {sup:^3}| {eol}")
         return head + "\n" + "\n".join(lines) + "```"
 

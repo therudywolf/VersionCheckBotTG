@@ -10,6 +10,11 @@ from sqlalchemy import and_
 from bot.models import CVERecord
 from bot.utils.cache import TTLCache
 from bot.utils.retry import retry_async
+from bot.utils.constants import (
+    CVE_SEVERITY_CRITICAL, CVE_SEVERITY_HIGH, CVE_SEVERITY_MEDIUM, CVE_SEVERITY_LOW,
+    DEFAULT_CVE_LIMIT, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY, DEFAULT_RETRY_BACKOFF,
+    SECONDS_PER_DAY
+)
 from config import settings
 
 log = logging.getLogger(__name__)
@@ -62,9 +67,9 @@ class CVEService:
         
         return await retry_async(
             _fetch,
-            max_attempts=3,
-            delay=2.0,  # NVD has rate limits
-            backoff=2.0,
+            max_attempts=DEFAULT_MAX_RETRIES,
+            delay=DEFAULT_RETRY_DELAY * 2,  # NVD has rate limits
+            backoff=DEFAULT_RETRY_BACKOFF,
             exceptions=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
         )
     
@@ -95,7 +100,7 @@ class CVEService:
         self,
         product: str,
         version: Optional[str] = None,
-        limit: int = 10
+        limit: int = DEFAULT_CVE_LIMIT
     ) -> List[Dict[str, Any]]:
         """
         Search for CVEs related to a product/version.
@@ -146,24 +151,24 @@ class CVEService:
                             severity_data = cve_data["metrics"]["cvssMetricV31"][0]
                             base_score = severity_data.get("cvssData", {}).get("baseScore", 0)
                             if base_score >= 9.0:
-                                severity = "CRITICAL"
+                                severity = CVE_SEVERITY_CRITICAL
                             elif base_score >= 7.0:
-                                severity = "HIGH"
+                                severity = CVE_SEVERITY_HIGH
                             elif base_score >= 4.0:
-                                severity = "MEDIUM"
+                                severity = CVE_SEVERITY_MEDIUM
                             else:
-                                severity = "LOW"
+                                severity = CVE_SEVERITY_LOW
                         elif "cvssMetricV2" in cve_data["metrics"]:
                             severity_data = cve_data["metrics"]["cvssMetricV2"][0]
                             base_score = severity_data.get("cvssData", {}).get("baseScore", 0)
                             if base_score >= 9.0:
-                                severity = "CRITICAL"
+                                severity = CVE_SEVERITY_CRITICAL
                             elif base_score >= 7.0:
-                                severity = "HIGH"
+                                severity = CVE_SEVERITY_HIGH
                             elif base_score >= 4.0:
-                                severity = "MEDIUM"
+                                severity = CVE_SEVERITY_MEDIUM
                             else:
-                                severity = "LOW"
+                                severity = CVE_SEVERITY_LOW
                     
                     # Extract description
                     description = ""
@@ -260,7 +265,17 @@ class CVEService:
         Returns:
             List of recent CVE dictionaries
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        """
+        Get recent CVEs for a product.
+        
+        Args:
+            product: Product name
+            days: Number of days to look back
+            
+        Returns:
+            List of recent CVE dictionaries
+        """
+        cutoff_date = datetime.utcnow() - timedelta(seconds=days * SECONDS_PER_DAY)
         
         # Try database first
         if self.db:
@@ -283,7 +298,7 @@ class CVEService:
                 } for r in records]
         
         # Fallback to API search
-        return await self.search_cve(product, limit=20)
+        return await self.search_cve(product, limit=DEFAULT_CVE_LIMIT * 4)
     
     async def close(self):
         """Close aiohttp session."""

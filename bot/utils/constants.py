@@ -1,0 +1,77 @@
+"""Constants used throughout the application."""
+
+# Emoji constants
+EMOJI_CHECK = "✅"
+EMOJI_CROSS = "❌"
+EMOJI_CVE_CRITICAL = "🔴"
+EMOJI_CVE_HIGH = "🟠"
+EMOJI_CVE_MEDIUM = "🟡"
+EMOJI_CVE_LOW = "🟢"
+EMOJI_CVE_UNKNOWN = "⚪"
+EMOJI_USERS = "👥"
+EMOJI_SUBSCRIPTIONS = "📋"
+EMOJI_NOTIFICATIONS = "📨"
+EMOJI_ALERT = "🔔"
+EMOJI_CVE = "🔒"
+EMOJI_ARROW = "→"
+EMOJI_MARKER = "▶"
+
+# Status constants
+STATUS_SUPPORTED = "supported"
+STATUS_EOL = "eol"
+STATUS_UNKNOWN = "unknown"
+
+# Notification types
+NOTIFICATION_STATUS_CHANGE = "status_change"
+NOTIFICATION_NEW_CVE = "new_cve"
+NOTIFICATION_EOL_WARNING = "eol_warning"
+
+# CVE severity levels
+CVE_SEVERITY_CRITICAL = "CRITICAL"
+CVE_SEVERITY_HIGH = "HIGH"
+CVE_SEVERITY_MEDIUM = "MEDIUM"
+CVE_SEVERITY_LOW = "LOW"
+
+# Default values
+DEFAULT_PAGINATION_SIZE = 10
+DEFAULT_CVE_LIMIT = 5
+DEFAULT_TABLE_ROWS = 7
+DEFAULT_FUZZY_MATCHES = 5
+
+# Cache keys
+CACHE_KEY_PREFIX_RELEASE = "release_"
+CACHE_KEY_PREFIX_PRODUCTS = "products_"
+CACHE_KEY_PREFIX_CVE = "cve_"
+
+# API endpoints
+API_ENDPOINT_PRODUCTS = "products.json"
+API_ENDPOINT_RELEASE_V1 = "v1/{slug}.json"
+API_ENDPOINT_RELEASE = "{slug}.json"
+API_ENDPOINT_CVE = "cves/2.0"
+
+# Time constants (in seconds)
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_HOUR = 3600
+SECONDS_PER_DAY = 86400
+SECONDS_PER_WEEK = 604800
+
+# Retry constants
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0
+DEFAULT_RETRY_BACKOFF = 2.0
+
+# Rate limiting
+DEFAULT_RATE_LIMIT_PER_MINUTE = 20
+DEFAULT_RATE_LIMIT_PER_HOUR = 200
+
+# File constants
+MAX_FILE_SIZE_BYTES = 1024 * 1024  # 1MB
+SUPPORTED_FILE_TYPES = ["text/plain"]
+
+# Message formatting
+MAX_MESSAGE_LENGTH = 4096  # Telegram limit
+MAX_CAPTION_LENGTH = 1024
+
+# Database
+DEFAULT_PAGE_SIZE = 20
+
