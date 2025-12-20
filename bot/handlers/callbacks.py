@@ -91,12 +91,17 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await query.edit_message_text(table, parse_mode="Markdown")
             else:
                 await query.answer("Данные не найдены")
-    elif data.startswith("subs_page_"):
-        # Pagination for subscriptions
+    elif data.startswith("subs_page_") or data.startswith("access_page_"):
+        # Pagination for subscriptions or access list
         page = int(data.split("_")[-1])
-        from bot.handlers.commands import subscriptions_command
-        context.args = [str(page)]
-        await subscriptions_command(update, context)
+        if data.startswith("subs_page_"):
+            from bot.handlers.commands import subscriptions_command
+            context.args = [str(page)]
+            await subscriptions_command(update, context)
+        else:
+            from bot.handlers.commands import admin_access_list_command
+            context.args = ["access", str(page)]
+            await admin_access_list_command(update, context)
     elif data.startswith("cve_page_"):
         # Pagination for CVE
         parts = data.split("_")

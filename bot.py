@@ -35,6 +35,36 @@ def main():
     log.info("Initializing database...")
     init_db()
     
+    # Initialize default admin from config if exists
+    if settings.ADMIN_IDS:
+        from bot.database.db import get_db
+        from bot.models.admin import Access, BotMode
+        db = next(get_db())
+        try:
+            # Initialize bot mode if not exists
+            bot_mode = db.query(BotMode).first()
+            if not bot_mode:
+                bot_mode = BotMode(mode="open")
+                db.add(bot_mode)
+            
+            for admin_id in settings.ADMIN_IDS:
+                existing = db.query(Access).filter(Access.user_id == admin_id).first()
+                if not existing:
+                    admin = Access(
+                        user_id=admin_id,
+                        has_access=True,
+                        is_admin=True,
+                        notes="Initial admin from config"
+                    )
+                    db.add(admin)
+                    log.info(f"Created initial admin: {admin_id}")
+            db.commit()
+        except Exception as e:
+            log.error(f"Error initializing admins: {e}")
+            db.rollback()
+        finally:
+            db.close()
+    
     app = (
         ApplicationBuilder()
         .token(settings.BOT_TOKEN)

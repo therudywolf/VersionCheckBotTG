@@ -13,6 +13,8 @@ from bot.utils.error_messages import ErrorMessages
 from bot.utils.pagination import paginate_list, create_pagination_keyboard
 from bot.utils.constants import DEFAULT_PAGINATION_SIZE
 from bot.utils.progress import show_progress
+from bot.utils.access_control import has_access, is_admin, get_bot_mode, set_bot_mode
+from bot.utils.stats_collector import record_command
 from bot.database.db import get_db
 
 log = logging.getLogger(__name__)
@@ -47,10 +49,19 @@ def error_handler(func):
     return wrapper
 
 
+@access_required
 @rate_limit_handler
 @error_handler
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
+    # Record stats
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        record_command(db, update.effective_user.id, "start")
+    finally:
+        db.close()
+    
     await update.message.reply_markdown(
         "Проверяю поддерживаемость версий ПО по endoflife.date.\n"
         "*Пример:* `nodejs 22, python`\n"
@@ -58,10 +69,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@access_required
 @rate_limit_handler
 @error_handler
 async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /check command."""
+    # Record stats
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        record_command(db, update.effective_user.id, "check")
+    finally:
+        db.close()
+    
     if not context.args:
         await update.message.reply_text("Укажите продукт и версию. Пример: /check python 3.11")
         return
@@ -70,10 +90,18 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await respond_to_query(update, query)
 
 
+@access_required
 @rate_limit_handler
 @error_handler
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /subscribe command."""
+    # Record stats
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        record_command(db, update.effective_user.id, "subscribe")
+    finally:
+        db.close()
     if not context.args:
         await update.message.reply_text(
             "Использование: /subscribe <продукт> [версия]\n"
@@ -338,10 +366,18 @@ async def import_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ошибка при импорте подписок.")
 
 
+@access_required
 @rate_limit_handler
 @error_handler
 async def cve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /cve command."""
+    # Record stats
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        record_command(db, update.effective_user.id, "cve")
+    finally:
+        db.close()
     if not context.args:
         await update.message.reply_text(
             "Использование: /cve <продукт> [версия]\n"
@@ -406,14 +442,57 @@ async def cve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
+def access_required(func):
+    """Decorator to check if user has access to bot."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update or not update.effective_user:
+            return
+        
+        user_id = update.effective_user.id
+        
+        # Check access
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            user_has_access = has_access(db, user_id)
+            if not user_has_access:
+                await update.message.reply_text(
+                    "❌ У вас нет доступа к боту.\n"
+                    "Обратитесь к администратору для получения доступа."
+                )
+                return
+        finally:
+            db.close()
+        
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
 def admin_only(func):
     """Decorator to check if user is admin."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = update.effective_user.id
-        if user_id not in settings.ADMIN_IDS:
-            await update.message.reply_text(ErrorMessages.ADMIN_ONLY)
+        if not update or not update.effective_user:
             return
+        
+        user_id = update.effective_user.id
+        
+        # Check legacy ADMIN_IDS from config
+        if user_id in settings.ADMIN_IDS:
+            return await func(update, context, *args, **kwargs)
+        
+        # Check database permissions
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            user_is_admin = is_admin(db, user_id)
+            if not user_is_admin:
+                await update.message.reply_text(ErrorMessages.ADMIN_ONLY)
+                return
+        finally:
+            db.close()
+        
         return await func(update, context, *args, **kwargs)
     return wrapper
 
@@ -429,27 +508,60 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         from bot.models import User, Subscription, Notification, CVERecord
         
+        from bot.models import Admin
+        from datetime import datetime, timedelta
+        
         # Get statistics
         total_users = db.query(User).count()
         active_subscriptions = db.query(Subscription).filter(Subscription.is_active == True).count()
         total_notifications = db.query(Notification).count()
         total_cves = db.query(CVERecord).count()
+        total_admins = db.query(Admin).filter(Admin.is_active == True).count()
         
         # Recent activity (last 24 hours)
-        from datetime import datetime, timedelta
         yesterday = datetime.utcnow() - timedelta(days=1)
         recent_notifications = db.query(Notification).filter(
             Notification.sent_at >= yesterday
         ).count()
         
+        from bot.models.admin import Access, BotMode
+        from bot.models.user_stats import UserStats
+        
+        # Get bot mode
+        current_mode = get_bot_mode(db)
+        mode_emoji = "🌐" if current_mode == "open" else "🔒"
+        mode_text = "Открытый" if current_mode == "open" else "Ограниченный"
+        
+        # Get access stats
+        total_with_access = db.query(Access).filter(Access.has_access == True).count()
+        total_admins_count = db.query(Access).filter(Access.is_admin == True).count()
+        
+        # User stats
+        active_users_24h = db.query(UserStats).filter(
+            UserStats.last_activity >= yesterday
+        ).count() if hasattr(UserStats, 'last_activity') else 0
+        
+        # Top commands
+        top_check = db.query(UserStats).order_by(UserStats.check_commands.desc()).first()
+        top_subscribe = db.query(UserStats).order_by(UserStats.subscribe_commands.desc()).first()
+        
         stats_text = (
             f"*Статистика бота*\n\n"
-            f"👥 Пользователей: {total_users}\n"
+            f"{mode_emoji} Режим: {mode_text}\n"
+            f"👥 Всего пользователей: {total_users}\n"
+            f"✅ С доступом: {total_with_access}\n"
+            f"👑 Администраторов: {total_admins_count}\n"
             f"📋 Активных подписок: {active_subscriptions}\n"
             f"📨 Всего уведомлений: {total_notifications}\n"
             f"🔔 Уведомлений за 24ч: {recent_notifications}\n"
-            f"🔒 CVE записей: {total_cves}"
+            f"🔒 CVE записей: {total_cves}\n"
+            f"📊 Активных за 24ч: {active_users_24h}"
         )
+        
+        # Add user stats if available
+        if top_check and top_check.check_commands > 0:
+            stats_text += f"\n\n*Топ команды:*\n"
+            stats_text += f"Проверок: {top_check.check_commands} (ID: {top_check.user_id})"
         
         await update.message.reply_markdown(stats_text)
     finally:
@@ -534,10 +646,26 @@ async def admin_broadcast_command(update: Update, context: ContextTypes.DEFAULT_
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin command."""
     if not context.args:
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            current_mode = get_bot_mode(db)
+            mode_text = "Открытый" if current_mode == "open" else "Ограниченный"
+            mode_emoji = "🌐" if current_mode == "open" else "🔒"
+        finally:
+            db.close()
+        
         help_text = (
             "*Административные команды:*\n\n"
+            f"{mode_emoji} Текущий режим: {mode_text}\n\n"
+            "`/admin mode` - Переключить режим (открытый/ограниченный)\n"
             "`/admin cache_clear` - Очистить кэш\n"
             "`/admin users` - Список пользователей\n"
+            "`/admin access` - Список пользователей с доступом\n"
+            "`/admin grant <user_id>` - Выдать доступ\n"
+            "`/admin revoke <user_id>` - Отозвать доступ\n"
+            "`/admin make_admin <user_id>` - Сделать администратором\n"
+            "`/admin remove_admin <user_id>` - Убрать администратора\n"
             "`/admin broadcast <сообщение>` - Рассылка всем пользователям\n"
             "`/admin export_db` - Экспорт базы данных\n"
             "`/stats` - Статистика бота"
@@ -547,16 +675,30 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     subcommand = context.args[0].lower()
     
-    if subcommand == "cache_clear":
+    if subcommand == "mode":
+        await admin_mode_command(update, context)
+    elif subcommand == "cache_clear":
         await admin_cache_clear_command(update, context)
     elif subcommand == "users":
         await admin_users_command(update, context)
+    elif subcommand == "access":
+        await admin_access_list_command(update, context)
+    elif subcommand == "grant":
+        await admin_grant_access_command(update, context)
+    elif subcommand == "revoke":
+        await admin_revoke_access_command(update, context)
+    elif subcommand == "make_admin":
+        await admin_make_admin_command(update, context)
+    elif subcommand == "remove_admin":
+        await admin_remove_admin_command(update, context)
     elif subcommand == "broadcast":
         await admin_broadcast_command(update, context)
     elif subcommand == "export_db":
         await update.message.reply_text("Экспорт БД в разработке.")
     else:
         await update.message.reply_text(f"Неизвестная команда: {subcommand}")
+
+
 
 
 @rate_limit_handler
@@ -610,6 +752,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/alerts` - Настройки уведомлений\n"
         "`/history` - История ваших запросов\n"
         "`/stats` - Статистика (только для админов)\n"
+        "`/admin` - Административные команды (только для админов)\n"
         "`/help` - Эта справка\n\n"
         "*Примеры:*\n"
         "`/check python 3.11`\n"

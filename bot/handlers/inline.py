@@ -35,6 +35,18 @@ def error_handler(func):
 @error_handler
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline queries."""
+    # Check access
+    from bot.database.db import get_db
+    from bot.utils.access_control import has_access
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        if not has_access(db, update.effective_user.id):
+            await update.inline_query.answer([], cache_time=0)
+            return
+    finally:
+        db.close()
+    
     query = update.inline_query.query.strip()
     if not query:
         return

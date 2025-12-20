@@ -33,6 +33,21 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message or not update.message.text:
         return
     
+    # Check access
+    from bot.database.db import get_db
+    from bot.utils.access_control import has_access
+    db_gen = get_db()
+    db = next(db_gen)
+    try:
+        if not has_access(db, update.effective_user.id):
+            await update.message.reply_text(
+                "❌ У вас нет доступа к боту.\n"
+                "Обратитесь к администратору для получения доступа."
+            )
+            return
+    finally:
+        db.close()
+    
     await respond_to_query(update, update.message.text)
 
 

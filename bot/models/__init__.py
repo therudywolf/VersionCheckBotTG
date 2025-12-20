@@ -6,5 +6,7 @@ from bot.models.notification import Notification
 from bot.models.query_history import QueryHistory
 from bot.models.favorite import Favorite
 from bot.models.user_settings import UserSettings
+from bot.models.admin import Access, BotMode
+from bot.models.user_stats import UserStats
 
-__all__ = ["User", "Subscription", "CVERecord", "Notification", "QueryHistory", "Favorite", "UserSettings"]
+__all__ = ["User", "Subscription", "CVERecord", "Notification", "QueryHistory", "Favorite", "UserSettings", "Access", "BotMode", "UserStats"]
