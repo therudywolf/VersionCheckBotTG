@@ -11,7 +11,7 @@ services:
       - ./cache:/app/cache
       - ./backups:/app/backups
     healthcheck:
-      test: ["CMD", "python", "-c", "import sqlite3; conn = sqlite3.connect('bot.db'); conn.close()"]
+      test: ["CMD", "python", "-c", "import os; db_file = 'bot.db'; exit(0) if (os.path.exists(db_file) and os.path.isfile(db_file)) else exit(1)"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -1,6 +1,7 @@
 """Main entry point for the Telegram bot."""
 import asyncio
 import logging
+import signal
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -25,6 +26,46 @@ log = logging.getLogger(__name__)
 version_service = VersionService()
 scheduler = None
 app = None  # Global app instance for shutdown
+shutdown_event = None  # Will be created in the event loop
+
+
+def setup_signal_handlers(loop):
+    """Setup signal handlers for graceful shutdown."""
+    def signal_handler(signum, frame):
+        """Handle shutdown signals."""
+        log.info(f"Received signal {signum}, initiating graceful shutdown...")
+        if shutdown_event:
+            loop.call_soon_threadsafe(shutdown_event.set)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+
+async def post_init(app_instance):
+    """Post-initialization callback for the application."""
+    global scheduler, shutdown_event, version_service
+    
+    # Create shutdown event in the current event loop
+    shutdown_event = asyncio.Event()
+    
+    # Setup signal handlers now that we have an event loop
+    loop = asyncio.get_event_loop()
+    setup_signal_handlers(loop)
+    
+    # Initialize cache directory and cleanup old files
+    from pathlib import Path
+    cache_dir = Path(settings.CACHE_DIR)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"Cache directory: {cache_dir.absolute()}")
+    
+    # Cleanup old cache files
+    await version_service._cleanup_old_cache_files()
+    
+    # Start scheduler
+    scheduler = Scheduler(app_instance.bot)
+    await scheduler.start()
+    
+    log.info("Bot initialized and scheduler started")
 
 
 def main():
@@ -44,17 +85,6 @@ def main():
     # Initialize database
     log.info("Initializing database...")
     init_db()
-    
-    # Initialize cache directory and cleanup old files
-    from pathlib import Path
-    from bot.services.version_service import VersionService
-    cache_dir = Path(settings.CACHE_DIR)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    log.info(f"Cache directory: {cache_dir.absolute()}")
-    
-    # Cleanup old cache files
-    version_service = VersionService()
-    asyncio.run(version_service._cleanup_old_cache_files())
     
     # Initialize default admin from config if exists
     if settings.ADMIN_IDS:
@@ -93,6 +123,8 @@ def main():
         ApplicationBuilder()
         .token(settings.BOT_TOKEN)
         .concurrent_updates(True)
+        .post_init(post_init)
+        .post_shutdown(shutdown)
         .build()
     )
     
@@ -119,27 +151,18 @@ def main():
     
     log.info("Bot starting...")
     
-    # Setup signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        """Handle shutdown signals."""
-        log.info(f"Received signal {signum}, initiating graceful shutdown...")
-        shutdown_event.set()
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Start scheduler
-    global scheduler
-    scheduler = Scheduler(app.bot)
-    asyncio.create_task(scheduler.start())
-    
     # Run bot with graceful shutdown support
+    # Signal handlers will be set up in post_init callback when event loop is available
     try:
-        app.run_polling(close_loop=False, stop_signals=None)  # We handle signals ourselves
+        app.run_polling(
+            close_loop=False,
+            stop_signals=None  # We handle signals ourselves
+        )
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
     finally:
-        shutdown_event.set()
+        if shutdown_event and not shutdown_event.is_set():
+            shutdown_event.set()
 
 
 async def shutdown():
@@ -184,16 +207,13 @@ async def shutdown():
 if __name__ == "__main__":
     try:
         main()
-        
-        # Wait for shutdown signal
-        try:
-            asyncio.run(shutdown_event.wait())
-        except KeyboardInterrupt:
-            pass
-        
     except KeyboardInterrupt:
         log.info("Bot stopped by user")
     except Exception as e:
         log.error(f"Fatal error: {e}", exc_info=True)
     finally:
-        asyncio.run(shutdown())
+        # Ensure graceful shutdown
+        try:
+            asyncio.run(shutdown())
+        except Exception as e:
+            log.error(f"Error during shutdown: {e}", exc_info=True)

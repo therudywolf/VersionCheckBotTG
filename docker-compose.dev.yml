@@ -15,6 +15,8 @@ services:
       - ./logs:/app/logs
       - ./cache:/app/cache
       - ./backups:/app/backups
+    # Note: Mounting .:/app in dev mode may cause permission issues
+    # If you encounter permission errors, remove this volume mount
     environment:
       - LOG_LEVEL=DEBUG
     command: python bot.py

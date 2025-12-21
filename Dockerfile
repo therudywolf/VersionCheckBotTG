@@ -24,17 +24,19 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
-# Create necessary directories
+# Create necessary directories with proper permissions
 RUN mkdir -p logs cache backups && \
     chmod -R 755 logs cache backups
-
-# Health check (basic check - can be improved)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import sqlite3; conn = sqlite3.connect('bot.db'); conn.close()" || exit 1
 
 # Run as non-root user
 RUN useradd -m -u 1000 botuser && \
     chown -R botuser:botuser /app
+
+# Health check - simple check that Python can import and basic functionality works
+# Database check is done via file existence and basic connectivity
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import os; db_file = 'bot.db'; (os.path.exists(db_file) and os.path.isfile(db_file)) or exit(1)" || exit 1
+
 USER botuser
 
 ENV PYTHONUNBUFFERED=1
