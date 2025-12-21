@@ -41,3 +41,5 @@ def record_command(db: Session, user_id: int, command_name: str):
         log.error(f"Error recording stats: {e}")
         db.rollback()
 
+
+

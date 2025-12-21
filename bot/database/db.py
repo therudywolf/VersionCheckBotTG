@@ -1,83 +1,32 @@
 """Database setup and session management."""
-from contextlib import contextmanager
-from sqlalchemy import create_engine, event, pool
+from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from config import settings
 
 Base = declarative_base()
 
-# Create engine with connection pooling
+# Create engine - using SQLite for now
+# Convert sqlite:/// to sqlite:/// for proper path handling
 db_url = settings.DATABASE_URL
-
 if db_url.startswith("sqlite:///"):
-    # SQLite configuration
     db_path = db_url.replace("sqlite:///", "")
-    # Ensure directory exists for SQLite database
-    from pathlib import Path
-    db_file = Path(db_path)
-    if db_file.parent != Path(".") and str(db_file.parent) != "":
-        db_file.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
-        connect_args={"check_same_thread": False},
-        poolclass=pool.StaticPool,  # SQLite doesn't support connection pooling, use StaticPool
-        pool_pre_ping=False
-    )
-elif db_url.startswith("postgresql://") or db_url.startswith("postgresql+psycopg2://"):
-    # PostgreSQL configuration with connection pooling
-    engine = create_engine(
-        db_url,
-        echo=False,
-        poolclass=pool.QueuePool,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,  # Verify connections before using
-        pool_recycle=3600,  # Recycle connections after 1 hour
+        connect_args={"check_same_thread": False}
     )
 else:
-    # Default configuration for other databases
-    engine = create_engine(
-        db_url,
-        echo=False,
-        pool_pre_ping=True
-    )
+    engine = create_engine(db_url, echo=False)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_db():
-    """
-    Get database session generator.
-    
-    Yields:
-        Database session
-    """
+def get_db() -> Session:
+    """Get database session."""
     db = SessionLocal()
     try:
         yield db
-    finally:
-        db.close()
-
-
-@contextmanager
-def get_db_context():
-    """
-    Get database session as context manager.
-    
-    Usage:
-        with get_db_context() as db:
-            # use db
-            pass
-    """
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
     finally:
         db.close()
 

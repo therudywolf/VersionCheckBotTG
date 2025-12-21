@@ -42,3 +42,5 @@ class TestParser:
         assert validate_product_slug("") == False
         assert validate_product_slug("123") == False
 
+
+

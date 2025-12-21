@@ -89,3 +89,5 @@ def set_bot_mode(db: Session, mode: str, changed_by: int):
     
     db.commit()
 
+
+

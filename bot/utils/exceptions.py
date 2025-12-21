@@ -59,3 +59,5 @@ class RateLimitError(BotError):
             user_message += f" Попробуйте через {retry_after} секунд."
         super().__init__(message, user_message)
 
+
+

@@ -126,3 +126,5 @@ class CircuitBreaker:
         self.last_failure_time = None
         log.info(f"Circuit breaker {self.name} manually reset")
 
+
+
