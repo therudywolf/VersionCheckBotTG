@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 # Global service instance
 version_service = VersionService()
 scheduler = None
+app = None  # Global app instance for shutdown
 
 
 def main():
@@ -146,23 +147,36 @@ async def shutdown():
     log.info("Starting graceful shutdown...")
     
     # Stop accepting new updates
-    if app:
-        await app.stop()
-        await app.shutdown()
+    global app
+    if 'app' in globals() and app:
+        try:
+            await app.stop()
+            await app.shutdown()
+        except Exception as e:
+            log.error(f"Error stopping app: {e}", exc_info=True)
     
     # Stop scheduler
     global scheduler
     if scheduler:
-        await scheduler.stop()
+        try:
+            await scheduler.stop()
+        except Exception as e:
+            log.error(f"Error stopping scheduler: {e}", exc_info=True)
     
     # Close version service
     global version_service
     if version_service:
-        await version_service.close()
+        try:
+            await version_service.close()
+        except Exception as e:
+            log.error(f"Error closing version service: {e}", exc_info=True)
     
     # Close database connections
-    from bot.database.db import engine
-    engine.dispose()
+    try:
+        from bot.database.db import engine
+        engine.dispose()
+    except Exception as e:
+        log.error(f"Error disposing database engine: {e}", exc_info=True)
     
     log.info("Shutdown complete")
 

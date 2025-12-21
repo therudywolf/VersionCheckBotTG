@@ -13,6 +13,11 @@ db_url = settings.DATABASE_URL
 if db_url.startswith("sqlite:///"):
     # SQLite configuration
     db_path = db_url.replace("sqlite:///", "")
+    # Ensure directory exists for SQLite database
+    from pathlib import Path
+    db_file = Path(db_path)
+    if db_file.parent != Path(".") and str(db_file.parent) != "":
+        db_file.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
