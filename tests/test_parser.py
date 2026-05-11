@@ -34,6 +34,22 @@ class TestParser:
         """Test parsing with newline separator."""
         result = parse("python\nnodejs\njava")
         assert len(result) == 3
+
+    def test_parse_free_form_query(self):
+        """Test parsing natural-language query."""
+        result = parse("проверь python>=3.11 и node.js 22.x")
+        assert result == [("python", "3.11"), ("nodejs", "22")]
+
+    def test_parse_product_version_separators(self):
+        """Test parsing common product/version separators."""
+        assert parse("nginx/1.24") == [("nginx", "1.24")]
+        assert parse("ruby-3.2") == [("ruby", "3.2")]
+
+    def test_parse_common_aliases(self):
+        """Test common product aliases."""
+        assert parse("postgres 16") == [("postgresql", "16")]
+        assert parse("golang 1.22.5") == [("go", "1.22.5")]
+        assert parse("k8s v1.30") == [("kubernetes", "1.30")]
     
     def test_validate_product_slug(self):
         """Test product slug validation."""

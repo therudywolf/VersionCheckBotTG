@@ -169,24 +169,11 @@ class MonitoringService:
             if not data:
                 return None
             
-            # Find the relevant release
-            rel = None
-            if subscription.version:
-                v = subscription.version.lower()
-                for r in data:
-                    if v in {str(r.get('cycle', '')).lower(), str(r.get('latest', '')).lower()}:
-                        rel = r
-                        break
-            
+            rel = self.version_service.find_release(data, subscription.version)
             if rel is None:
-                rel = data[0]
-            
-            # Determine current status
-            is_supported = str(rel.get('support') or rel.get('supported')).lower() in {
-                "true", "yes", "active", "supported"
-            }
-            eol = rel.get('eol')
-            current_status = "supported" if is_supported else ("eol" if eol else "unknown")
+                return None
+
+            current_status = self.version_service.release_status(rel)
             
             # Check if status changed
             if subscription.last_status != current_status:

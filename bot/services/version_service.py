@@ -13,6 +13,7 @@ from bot.utils.constants import (
     EMOJI_CHECK, EMOJI_CROSS, EMOJI_ARROW, EMOJI_MARKER,
     DEFAULT_TABLE_ROWS, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY, DEFAULT_RETRY_BACKOFF
 )
+from bot.utils.parser import _normalize_version
 from config import settings
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class VersionService:
         """
         self._sess: Optional[aiohttp.ClientSession] = None
         self._products: List[str] = []
+        self._aliases: Dict[str, str] = {}
         self._prod_ts = 0
 
     async def _session(self) -> aiohttp.ClientSession:
@@ -134,13 +136,19 @@ class VersionService:
         
         try:
             log.info("Fetching products list from API")
-            data = await self._fetch_json("products.json")
-            self._products = [d["slug"] if isinstance(d, dict) else d for d in data]
+            data = await self._fetch_json("v1/products/")
+            products, aliases = self._extract_products(data)
+            self._products = products
+            self._aliases = aliases
             self._prod_ts = time.time()
             
             # Save to disk
             try:
-                _disk.write_text(json.dumps({"ts": self._prod_ts, "data": self._products}))
+                _disk.write_text(json.dumps({
+                    "ts": self._prod_ts,
+                    "data": self._products,
+                    "aliases": self._aliases
+                }))
                 log.info(f"Loaded {len(self._products)} products and saved to disk")
             except Exception as e:
                 log.warning(f"Failed to save products to disk: {e}")
@@ -151,12 +159,63 @@ class VersionService:
                 try:
                     tmp = json.loads(_disk.read_text())
                     self._products = tmp["data"]
+                    self._aliases = tmp.get("aliases", {})
                     self._prod_ts = tmp["ts"]
                     log.info(f"Loaded {len(self._products)} products from disk cache")
                 except Exception as disk_err:
                     log.error(f"Failed to load products from disk: {disk_err}")
         
         return self._products
+
+    def _extract_products(self, data: Any) -> tuple[List[str], Dict[str, str]]:
+        """Extract product names and aliases from endoflife.date responses."""
+        raw_products = data.get("result", data) if isinstance(data, dict) else data
+        products: List[str] = []
+        aliases: Dict[str, str] = {}
+
+        for item in raw_products or []:
+            if isinstance(item, dict):
+                slug = item.get("name") or item.get("slug")
+                item_aliases = item.get("aliases") or []
+            else:
+                slug = str(item)
+                item_aliases = []
+
+            if not slug:
+                continue
+
+            slug = str(slug).lower()
+            products.append(slug)
+            aliases[slug] = slug
+            for alias in item_aliases:
+                aliases[str(alias).lower()] = slug
+
+        return products, aliases
+
+    async def resolve_slug(self, slug: str) -> str:
+        """Resolve a user-entered product name to a known endoflife.date slug."""
+        normalized = slug.strip().lower()
+        products = await self.products()
+
+        if not products:
+            return normalized
+
+        canonical = self._aliases.get(normalized, normalized)
+        if canonical in products:
+            return canonical
+
+        try:
+            from rapidfuzz import fuzz, process
+            match = process.extractOne(canonical, products, scorer=fuzz.WRatio)
+            if match and match[1] >= 82:
+                return match[0]
+        except Exception:
+            from difflib import get_close_matches
+            matches = get_close_matches(canonical, products, n=1, cutoff=0.82)
+            if matches:
+                return matches[0]
+
+        return canonical
 
     async def releases(self, slug: str) -> Optional[List[Dict]]:
         """
@@ -168,29 +227,42 @@ class VersionService:
         Returns:
             List of release dictionaries or None if not found
         """
-        cached = await _cache.get(slug, settings.RELEASE_TTL)
+        resolved_slug = await self.resolve_slug(slug)
+        cached = await _cache.get(resolved_slug, settings.RELEASE_TTL)
         if cached is not None:
-            log.debug(f"Returning cached releases for {slug}")
+            log.debug(f"Returning cached releases for {resolved_slug}")
             return cached
         
-        log.info(f"Fetching releases for {slug}")
-        for variant in [f"v1/{slug}.json", f"{slug}.json"]:
+        log.info(f"Fetching releases for {resolved_slug}")
+        for variant in [f"v1/products/{resolved_slug}/", f"{resolved_slug}.json"]:
             try:
                 data = await self._fetch_json(variant)
-                await _cache.set(slug, data)
-                log.info(f"Loaded {len(data)} releases for {slug}")
-                return data
+                releases = self._extract_releases(data)
+                await _cache.set(resolved_slug, releases)
+                log.info(f"Loaded {len(releases)} releases for {resolved_slug}")
+                return releases
             except aiohttp.ClientResponseError as e:
                 if e.status == 404:
-                    log.debug(f"Product {slug} not found at {variant}")
+                    log.debug(f"Product {resolved_slug} not found at {variant}")
                     continue
                 log.warning(f"Error fetching {variant}: {e}")
             except Exception as e:
                 log.warning(f"Unexpected error fetching {variant}: {e}")
                 continue
         
-        log.warning(f"Product {slug} not found in any variant")
+        log.warning(f"Product {resolved_slug} not found in any variant")
         return None
+
+    def _extract_releases(self, data: Any) -> List[Dict]:
+        """Extract releases from both v1 and legacy API payloads."""
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            result = data.get("result", data)
+            if isinstance(result, dict):
+                releases = result.get("releases", [])
+                return releases if isinstance(releases, list) else []
+        return []
 
     async def close(self):
         """Close aiohttp session."""
@@ -231,9 +303,84 @@ class VersionService:
         Returns:
             True if supported, False otherwise
         """
+        if "isMaintained" in rel:
+            return bool(rel.get("isMaintained"))
+        if "isEol" in rel:
+            return not bool(rel.get("isEol"))
+
+        eol_raw = rel.get("eol")
+        if isinstance(eol_raw, bool):
+            return not eol_raw
+        if isinstance(eol_raw, str) and eol_raw:
+            try:
+                return dt.date.fromisoformat(eol_raw) >= dt.date.today()
+            except ValueError:
+                pass
+
         return str(rel.get('support') or rel.get('supported')).lower() in {
             "true", "yes", "active", "supported"
         }
+
+    def _release_cycle(self, rel: Dict) -> str:
+        return str(rel.get("cycle") or rel.get("name") or rel.get("releaseCycle") or "n/a")
+
+    def _release_latest(self, rel: Dict) -> str:
+        latest = rel.get("latest", "n/a")
+        if isinstance(latest, dict):
+            return str(latest.get("name") or latest.get("version") or "n/a")
+        return str(latest)
+
+    def _release_eol(self, rel: Dict) -> Any:
+        return rel.get("eol") or rel.get("eolFrom")
+
+    def _version_matches_release(self, version: Optional[str], rel: Dict) -> bool:
+        if not version:
+            return False
+
+        query = _normalize_version(str(version))
+        cycle = _normalize_version(self._release_cycle(rel))
+        latest = _normalize_version(self._release_latest(rel))
+        candidates = {cycle, latest}
+
+        if query in candidates:
+            return True
+        if cycle and (query.startswith(f"{cycle}.") or query.startswith(f"{cycle}-")):
+            return True
+        if query and latest and latest.startswith(f"{query}."):
+            return True
+        if query and cycle and cycle.startswith(f"{query}."):
+            return True
+
+        return False
+
+    def find_release(self, data: List[Dict], version: Optional[str]) -> Optional[Dict]:
+        """Find the most relevant release for a possibly partial version query."""
+        if not data:
+            return None
+        if version:
+            for rel in data:
+                if self._version_matches_release(version, rel):
+                    return rel
+        return data[0]
+
+    def release_status(self, rel: Dict) -> str:
+        """Return a stable status label for subscription monitoring."""
+        if bool(rel.get("isEol")):
+            return "eol"
+
+        eol_raw = self._release_eol(rel)
+        if isinstance(eol_raw, bool) and eol_raw:
+            return "eol"
+        if isinstance(eol_raw, str) and eol_raw:
+            try:
+                if dt.date.fromisoformat(eol_raw) < dt.date.today():
+                    return "eol"
+            except ValueError:
+                pass
+
+        if self._is_supported(rel):
+            return "supported"
+        return "unknown"
 
     async def status_line(self, slug: str, version: Optional[str]) -> str:
         """
@@ -246,23 +393,18 @@ class VersionService:
         Returns:
             Formatted status line
         """
-        data = await self.releases(slug)
+        display_slug = await self.resolve_slug(slug)
+        data = await self.releases(display_slug)
         if data is None:
             return f"{EMOJI_CROSS} {slug}: не найдено"
-        rel = None
-        if version:
-            v = version.lower()
-            for r in data:
-                if v in {str(r.get('cycle', '')).lower(), str(r.get('latest', '')).lower()}:
-                    rel = r
-                    break
+        rel = self.find_release(data, version)
         if rel is None:
-            rel = data[0]
-        cycle = rel.get('cycle') or rel.get('releaseCycle', 'n/a')
-        latest = rel.get('latest', 'n/a')
-        eol_desc = self._eol_ru(rel.get('eol'), dt.date.today())
+            return f"{EMOJI_CROSS} {slug}: не найдено"
+        cycle = self._release_cycle(rel)
+        latest = self._release_latest(rel)
+        eol_desc = self._eol_ru(self._release_eol(rel), dt.date.today())
         sup_flag = EMOJI_CHECK if self._is_supported(rel) else EMOJI_CROSS
-        return f"{sup_flag} {slug} {cycle} {EMOJI_ARROW} {latest} ({eol_desc})"
+        return f"{sup_flag} {display_slug} {cycle} {EMOJI_ARROW} {latest} ({eol_desc})"
 
     def table(self, slug: str, data: List[Dict], highlight_version: Optional[str] = None, rows: int = DEFAULT_TABLE_ROWS) -> str:
         """
@@ -281,11 +423,10 @@ class VersionService:
         lines = []
         highlight_low = highlight_version.lower() if highlight_version else ""
         for r in data[:rows]:
-            rel = str(r.get('cycle') or r.get('releaseCycle', '?'))
-            latest = str(r.get('latest', '?'))
+            rel = self._release_cycle(r)
+            latest = self._release_latest(r)
             sup = "Да" if self._is_supported(r) else "Нет"
-            eol = r.get('eol') or "—"
-            marker = f"{EMOJI_MARKER} " if highlight_low and highlight_low in {rel.lower(), latest.lower()} else "  "
+            eol = self._release_eol(r) or "—"
+            marker = f"{EMOJI_MARKER} " if highlight_low and self._version_matches_release(highlight_low, r) else "  "
             lines.append(f"{marker}{rel:<6}| {latest:<8}| {sup:^3}| {eol}")
         return head + "\n" + "\n".join(lines) + "```"
-
