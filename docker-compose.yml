@@ -1,36 +1,36 @@
-version: '3.8'
-
 services:
   bot:
     build: .
     env_file: .env
     restart: unless-stopped
     volumes:
-      - ./bot.db:/app/bot.db
+      - bot-data:/app/data
       - ./logs:/app/logs
       - ./cache:/app/cache
-      - ./backups:/app/backups
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; db_file = 'bot.db'; exit(0) if (os.path.exists(db_file) and os.path.isfile(db_file)) else exit(1)"]
+      test: ["CMD", "python", "-c", "import os, sys; sys.exit(0 if os.path.isfile('data/bot.db') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
   # Optional: PostgreSQL for production
+  # Uncomment and set DATABASE_URL=postgresql://botuser:changeme@postgres:5432/botdb in .env
+  #
   # postgres:
-  #   image: postgres:15-alpine
+  #   image: postgres:16-alpine
   #   environment:
   #     POSTGRES_DB: botdb
   #     POSTGRES_USER: botuser
   #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
   #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  #     - postgres-data:/var/lib/postgresql/data
   #   healthcheck:
   #     test: ["CMD-SHELL", "pg_isready -U botuser"]
   #     interval: 10s
   #     timeout: 5s
   #     retries: 5
 
-# volumes:
-#   postgres_data:
+volumes:
+  bot-data:
+  # postgres-data:

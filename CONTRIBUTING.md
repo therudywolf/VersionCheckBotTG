@@ -1,79 +1,88 @@
-# Руководство по вкладу в проект
+# Contributing / Руководство по вкладу
 
-Спасибо за интерес к проекту VersionCheckBot! Мы приветствуем вклады от сообщества.
+Contributions are welcome! Below are the guidelines in Russian (primary) and English.
+
+---
 
 ## Как внести вклад
 
 ### Сообщения об ошибках
 
-Если вы нашли ошибку:
-1. Проверьте, не была ли она уже зарегистрирована в Issues
-2. Создайте новый Issue с подробным описанием
-3. Укажите шаги для воспроизведения
-4. Приложите логи (если возможно)
+1. Проверьте [Issues](https://github.com/therudywolf/VersionCheckBotTG/issues) — возможно, баг уже зарегистрирован.
+2. Создайте новый Issue с подробным описанием, шагами для воспроизведения и логами.
 
 ### Предложения функций
 
-Если у вас есть идея для новой функции:
-1. Создайте Issue с описанием функции
-2. Объясните, зачем она нужна
-3. Опишите, как она должна работать
+Создайте Issue с меткой `enhancement`, объясните зачем функция нужна и как должна работать.
 
 ### Pull Requests
 
 1. Fork репозитория
-2. Создайте ветку для ваших изменений (`git checkout -b feature/amazing-feature`)
+2. Создайте ветку: `git checkout -b feature/my-feature`
 3. Внесите изменения
-4. Убедитесь, что код соответствует стилю проекта
-5. Добавьте тесты (если возможно)
-6. Закоммитьте изменения (`git commit -m 'Add amazing feature'`)
-7. Запушьте в ветку (`git push origin feature/amazing-feature`)
-8. Откройте Pull Request
+4. Убедитесь, что тесты проходят: `pytest`
+5. Закоммитьте с понятным сообщением: `git commit -m 'feat: add my feature'`
+6. Push: `git push origin feature/my-feature`
+7. Откройте Pull Request
 
 ## Стандарты кода
 
-### Python стиль
+- **PEP 8** — основной стиль
+- **Type hints** — для всех публичных функций
+- **Docstrings** — для классов и функций
+- **Максимум 100 символов** в строке
 
-- Следуйте PEP 8
-- Используйте type hints где возможно
-- Добавляйте docstrings для всех функций и классов
-- Максимальная длина строки: 100 символов
+### Префиксы коммитов
 
-### Коммиты
-
-- Используйте понятные сообщения коммитов
-- Один коммит = одно логическое изменение
-- Используйте префиксы: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
+| Префикс | Назначение |
+|---------|------------|
+| `feat:` | Новая функциональность |
+| `fix:` | Исправление бага |
+| `docs:` | Документация |
+| `refactor:` | Рефакторинг без изменения поведения |
+| `test:` | Тесты |
+| `chore:` | Сборка, CI, зависимости |
 
 ### Тестирование
 
-- Добавляйте тесты для новых функций
-- Убедитесь, что все тесты проходят
-- Стремитесь к покрытию кода тестами
+```bash
+pytest                         # Все тесты
+pytest --cov=bot               # С покрытием
+pytest -k test_parser          # Конкретный тест
+```
 
 ## Структура проекта
 
 ```
 bot/
-├── handlers/      # Обработчики команд
-├── services/      # Бизнес-логика
-├── models/        # Модели БД
-├── utils/         # Утилиты
-└── database/      # Настройка БД
+├── handlers/      # Telegram-обработчики (commands, callbacks, inline, messages)
+├── services/      # Бизнес-логика (version, cve, monitoring, notification)
+├── models/        # SQLAlchemy-модели
+├── utils/         # Утилиты (cache, parser, fuzzy, rate_limiter, retry, ...)
+├── database/      # Engine + Session
+└── scheduler/     # Фоновые задачи
 ```
 
-## Процесс разработки
+## Процесс
 
-1. Обсудите большие изменения в Issue перед началом работы
-2. Создайте ветку от `main`
-3. Внесите изменения
-4. Убедитесь, что код работает
-5. Обновите документацию при необходимости
-6. Откройте Pull Request
+1. Обсудите крупные изменения в Issue перед началом работы.
+2. Один PR = одна логическая задача.
+3. Обновите документацию и CHANGELOG при необходимости.
+4. Убедитесь, что CI проходит.
 
-## Вопросы?
+---
 
-Если у вас есть вопросы, откройте Issue с меткой `question`.
+## English
 
-Спасибо за вклад! 🎉
+### Bug Reports
 
+Check existing [Issues](https://github.com/therudywolf/VersionCheckBotTG/issues) first.
+Include reproduction steps and logs.
+
+### Pull Requests
+
+1. Fork, branch (`feature/my-feature`), implement, test (`pytest`), commit, push, open PR.
+2. Follow PEP 8, add type hints and docstrings.
+3. Use [Conventional Commits](https://www.conventionalcommits.org/) prefixes.
+
+Thank you for contributing!

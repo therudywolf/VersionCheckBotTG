@@ -25,15 +25,15 @@ MANIFEST
 venv/
 env/
 ENV/
-.venv
+.venv/
 
-# IDE
+# IDE / Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
+*.code-workspace
 
 # Environment variables
 .env
@@ -44,34 +44,28 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
-bot.db
 *.db-journal
 
 # Logs
-*.log
 logs/
+*.log
 *.log.*
 
 # Cache
+cache/
 *.cache
-__pycache__/
 .pytest_cache/
 .mypy_cache/
-*.pyc
 /tmp/
-cache/
-eol_cache.json
-eol_products_cache_ru.json
 
 # Docker
 .dockerignore
 
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db
 
 # Project specific
-*.code-workspace
 .cursor/
 
 # Alembic
@@ -83,7 +77,10 @@ htmlcov/
 .tox/
 
 # Jupyter
-.ipynb_checkpoints
+.ipynb_checkpoints/
 
 # pyenv
 .python-version
+
+# Backups
+backups/

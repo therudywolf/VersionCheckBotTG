@@ -1,7 +1,3 @@
-version: '3.8'
-
-# Development docker-compose with additional services
-
 services:
   bot:
     build:
@@ -11,19 +7,14 @@ services:
     restart: unless-stopped
     volumes:
       - .:/app
-      - ./bot.db:/app/bot.db
       - ./logs:/app/logs
       - ./cache:/app/cache
-      - ./backups:/app/backups
-    # Note: Mounting .:/app in dev mode may cause permission issues
-    # If you encounter permission errors, remove this volume mount
     environment:
       - LOG_LEVEL=DEBUG
     command: python bot.py
 
-  # Optional: PostgreSQL for testing
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: botdb
       POSTGRES_USER: botuser
@@ -31,7 +22,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U botuser"]
       interval: 10s
@@ -39,7 +30,4 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
-
-
-
+  postgres-data:

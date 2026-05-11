@@ -1,398 +1,248 @@
-# VersionCheckBot 🤖
+# VersionCheckBot
 
-**VersionCheckBot** — умный Telegram-бот для мониторинга версий программного обеспечения, проверки End-of-Life статуса и отслеживания CVE уязвимостей.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Telegram Bot API](https://img.shields.io/badge/Telegram%20Bot%20API-21.x-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![endoflife.date](https://img.shields.io/badge/data-endoflife.date-orange)](https://endoflife.date)
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+Telegram-бот для мониторинга версий ПО, проверки End-of-Life статуса и отслеживания CVE-уязвимостей.
+Данные берутся из бесплатного API [endoflife.date](https://endoflife.date) (450+ продуктов) и [NVD](https://nvd.nist.gov/) (CVE).
 
-## 🚀 Возможности
+> **[English version below](#english)**
 
-### Основные функции
-- ✅ **Проверка версий ПО** — быстрая проверка статуса поддержки через [endoflife.date](https://endoflife.date)
-- 📊 **Детальные таблицы** — красивые markdown таблицы с информацией о релизах
-- 🔔 **Мониторинг и уведомления** — автоматические уведомления об изменении статуса
-- 🔒 **CVE интеграция** — поиск и мониторинг уязвимостей через NVD API
-- 📋 **Подписки** — подписка на продукты/версии с автоматическими проверками
-- ⚡ **Inline режим** — использование бота в любых чатах через inline queries
-- 📁 **Работа с файлами** — обработка списков продуктов из .txt файлов
+---
 
-### Дополнительные возможности
-- 🔍 **Умный поиск** — fuzzy matching для названий продуктов
-- 💾 **Персистентный кэш** — кэширование данных для быстрого доступа
-- 🔄 **Retry логика** — автоматические повторы при ошибках API
-- 📈 **Статистика** — административная статистика использования
-- 🎯 **Inline keyboards** — удобные кнопки для быстрых действий
+## Возможности
 
-## 📋 Содержание
+- **Проверка версий** — статус поддержки, дата EOL, последний релиз
+- **Подписки и мониторинг** — автоматические уведомления при смене статуса
+- **CVE-интеграция** — поиск уязвимостей через NVD API
+- **Inline-режим** — быстрая проверка прямо из любого чата
+- **Умный поиск** — fuzzy matching + алиасы (`node` -> `nodejs`, `k8s` -> `kubernetes`)
+- **Обработка файлов** — отправьте `.txt` со списком продуктов
+- **Экспорт/импорт** — подписки в JSON и CSV
+- **Избранное, история, уведомления** — персональные настройки
+- **Администрирование** — режимы доступа, рассылки, статистика, backup
 
-- [Установка](#-установка)
-- [Быстрый старт](#-быстрый-старт)
-- [Команды](#-команды)
-- [Конфигурация](#-конфигурация)
-- [Архитектура](#-архитектура)
-- [Разработка](#-разработка)
-- [Troubleshooting](#-troubleshooting)
+## Быстрый старт
 
-## 🛠 Установка
-
-### Требования
-
-- Python 3.10+
-- Telegram Bot Token (получить у [@BotFather](https://t.me/BotFather))
-- (Опционально) NVD API Key для расширенной работы с CVE
-
-### Установка зависимостей
+### 1. Клонирование и установка
 
 ```bash
-pip install -r requirements.txt
-```
-
-### Настройка
-
-1. Скопируйте `.env.example` в `.env`:
-```bash
-cp .env.example .env
-```
-
-2. Отредактируйте `.env` и укажите ваш `BOT_TOKEN`:
-```env
-BOT_TOKEN=your_bot_token_here
-```
-
-3. (Опционально) Укажите NVD API Key для работы с CVE:
-```env
-NVD_API_KEY=your_nvd_api_key
-```
-
-## 🚀 Быстрый старт
-
-### Запуск через Python
-
-```bash
-python bot.py
-```
-
-### Запуск через Docker
-
-```bash
-docker-compose up -d
-```
-
-### Проверка работы
-
-Отправьте боту сообщение:
-```
-python 3.11
-```
-
-Или используйте команду:
-```
-/check python 3.11
-```
-
-## 📖 Команды
-
-### Основные команды
-
-| Команда | Описание | Пример |
-|---------|----------|--------|
-| `/start` | Начать работу с ботом, показать справку | `/start` |
-| `/help` | Полная документация по командам | `/help` |
-| `/check <продукт> [версия]` | Проверить статус версии продукта | `/check python 3.11` |
-| `/subscribe <продукт> [версия]` | Подписаться на мониторинг продукта | `/subscribe nodejs 22` |
-| `/subscriptions` | Показать список ваших подписок | `/subscriptions` |
-| `/cve <продукт> [версия]` | Поиск CVE уязвимостей | `/cve python 3.11` |
-
-### Административные команды
-
-| Команда | Описание | Доступ |
-|---------|----------|--------|
-| `/stats` | Статистика использования бота | Только админы |
-
-### Inline режим
-
-Используйте бота в любом чате:
-```
-@YourBotName python 3.11
-```
-
-### Примеры использования
-
-**Проверка одного продукта:**
-```
-/check python 3.11
-```
-
-**Проверка нескольких продуктов:**
-```
-python 3.11, nodejs 22, java 17
-```
-
-**Подписка на мониторинг:**
-```
-/subscribe python 3.11
-```
-
-**Поиск CVE:**
-```
-/cve python 3.11
-```
-
-**Загрузка списка из файла:**
-Отправьте .txt файл со списком продуктов:
-```
-python 3.11
-nodejs 22
-java 17
-```
-
-## ⚙️ Конфигурация
-
-Все настройки задаются через переменные окружения или файл `.env`:
-
-### Обязательные параметры
-
-| Переменная | Описание | Пример |
-|------------|----------|--------|
-| `BOT_TOKEN` | Токен Telegram бота (обязательно) | `123456:ABC-DEF...` |
-
-### API настройки
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `EOL_API_ROOT` | `https://endoflife.date/api` | Базовый URL API endoflife.date |
-| `NVD_API_KEY` | (пусто) | API ключ для NVD (опционально, но рекомендуется) |
-| `NVD_API_ROOT` | `https://services.nvd.nist.gov/rest/json` | Базовый URL NVD API |
-
-### Кэширование
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `RELEASE_TTL` | `21600` (6 часов) | TTL кэша релизов в секундах |
-| `PRODUCTS_TTL` | `86400` (24 часа) | TTL кэша списка продуктов |
-| `CVE_TTL` | `43200` (12 часов) | TTL кэша CVE данных |
-
-### Производительность
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `MAX_PARALLEL` | `15` | Максимум параллельных запросов к API |
-
-### База данных
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `DATABASE_URL` | `sqlite:///./bot.db` | URL базы данных (SQLite или PostgreSQL) |
-
-### Планировщик
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `SCHEDULER_INTERVAL` | `21600` (6 часов) | Интервал проверки подписок в секундах |
-| `NOTIFICATION_ENABLED` | `true` | Включить/выключить уведомления |
-
-### Администрирование
-
-| Переменная | По умолчанию | Описание |
-|------------|--------------|----------|
-| `ADMIN_IDS` | (пусто) | Список ID администраторов (через запятую) |
-| `LOG_LEVEL` | `INFO` | Уровень логирования (DEBUG, INFO, WARNING, ERROR) |
-
-### Пример .env файла
-
-```env
-# Telegram Bot
-BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-
-# API Keys
-NVD_API_KEY=your_nvd_api_key_here
-
-# Database
-DATABASE_URL=sqlite:///./bot.db
-
-# Admin
-ADMIN_IDS=123456789,987654321
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-## 🏗 Архитектура
-
-### Структура проекта
-
-```
-VersionCheckBotTG/
-├── bot/
-│   ├── handlers/          # Обработчики команд и сообщений
-│   │   ├── commands.py     # Команды бота
-│   │   ├── messages.py     # Обработка текстовых сообщений
-│   │   ├── inline.py       # Inline queries
-│   │   └── callbacks.py    # Callback queries (кнопки)
-│   ├── services/           # Бизнес-логика
-│   │   ├── version_service.py      # Работа с endoflife.date API
-│   │   ├── cve_service.py          # Работа с NVD API
-│   │   ├── monitoring_service.py   # Управление подписками
-│   │   └── notification_service.py # Отправка уведомлений
-│   ├── models/             # Модели базы данных
-│   │   ├── user.py
-│   │   ├── subscription.py
-│   │   ├── cve_record.py
-│   │   └── notification.py
-│   ├── database/           # Настройка БД
-│   │   └── db.py
-│   ├── utils/              # Утилиты
-│   │   ├── parser.py        # Парсинг запросов
-│   │   ├── cache.py         # Кэширование
-│   │   ├── fuzzy.py         # Fuzzy matching
-│   │   ├── retry.py         # Retry логика
-│   │   └── logging_config.py
-│   └── scheduler/          # Фоновые задачи
-│       └── tasks.py
-├── bot.py                  # Точка входа
-├── config.py               # Конфигурация
-├── requirements.txt        # Зависимости
-├── Dockerfile              # Docker образ
-└── docker-compose.yml      # Docker Compose
-```
-
-### Архитектурные слои
-
-```
-┌─────────────────────────────────────┐
-│      Telegram Bot Layer              │
-│  (handlers: commands, messages)      │
-└──────────────┬───────────────────────┘
-               │
-┌──────────────▼───────────────────────┐
-│         Service Layer                 │
-│  (VersionService, CVEService, etc.)  │
-└──────────────┬───────────────────────┘
-               │
-┌──────────────▼───────────────────────┐
-│          Data Layer                   │
-│  (Database, Cache, External APIs)     │
-└──────────────┬───────────────────────┘
-               │
-┌──────────────▼───────────────────────┐
-│      Background Tasks                 │
-│  (Scheduler, Monitoring)             │
-└───────────────────────────────────────┘
-```
-
-### Основные компоненты
-
-- **Handlers** — обработка входящих сообщений и команд
-- **Services** — бизнес-логика и работа с внешними API
-- **Models** — модели данных для базы данных
-- **Utils** — вспомогательные утилиты (парсинг, кэш, retry)
-- **Scheduler** — фоновые задачи для мониторинга
-
-## 🔧 Разработка
-
-### Установка для разработки
-
-```bash
-git clone https://github.com/yourusername/VersionCheckBotTG.git
+git clone https://github.com/therudywolf/VersionCheckBotTG.git
 cd VersionCheckBotTG
 pip install -r requirements.txt
 ```
 
-### Запуск в режиме разработки
+### 2. Настройка
 
 ```bash
-# Установите LOG_LEVEL=DEBUG для детального логирования
-export LOG_LEVEL=DEBUG
+cp .env.example .env
+```
+
+Откройте `.env` и укажите `BOT_TOKEN` (получить у [@BotFather](https://t.me/BotFather)):
+
+```env
+BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+```
+
+### 3. Запуск
+
+```bash
 python bot.py
 ```
 
-### Структура базы данных
+Или через Docker:
 
-Бот использует SQLite по умолчанию. Таблицы создаются автоматически при первом запуске.
+```bash
+docker compose up -d
+```
 
-**Основные таблицы:**
-- `users` — пользователи Telegram
-- `subscriptions` — подписки на продукты
-- `cve_records` — кэш CVE данных
-- `notifications` — история уведомлений
+### 4. Проверка
 
-### Добавление новых функций
+Отправьте боту:
 
-1. Создайте handler в `bot/handlers/`
-2. Добавьте бизнес-логику в `bot/services/`
-3. При необходимости создайте модель в `bot/models/`
-4. Зарегистрируйте handler в `bot.py`
+```
+python 3.11
+```
 
-## 🐛 Troubleshooting
+## Команды
 
-### Бот не отвечает
+| Команда | Описание |
+|---------|----------|
+| `/start` | Начать работу |
+| `/help` | Справка по командам |
+| `/check <продукт> [версия]` | Проверить статус версии |
+| `/subscribe <продукт> [версия]` | Подписаться на мониторинг |
+| `/subscriptions` | Список подписок |
+| `/cve <продукт> [версия]` | Поиск CVE |
+| `/compare <п1> <в1> <п2> <в2>` | Сравнение версий |
+| `/favorites [add\|remove] <п>` | Избранные продукты |
+| `/alerts` | Настройки уведомлений |
+| `/history` | История запросов |
+| `/export [json\|csv]` | Экспорт подписок |
+| `/import` | Импорт подписок из файла |
+| `/health` | Состояние бота |
+| `/stats` | Статистика (админ) |
+| `/admin` | Административные команды (админ) |
 
-1. Проверьте, что `BOT_TOKEN` установлен правильно
-2. Убедитесь, что бот запущен: `python bot.py`
-3. Проверьте логи на наличие ошибок
+**Inline-режим:** `@имя_бота python 3.11` в любом чате.
 
-### Ошибки при работе с API
+**Несколько продуктов сразу:** `python 3.11, nodejs 22, java 17`
 
-1. Проверьте интернет-соединение
-2. Убедитесь, что API доступны (endoflife.date, NVD)
-3. Проверьте rate limits (особенно для NVD API)
+## Конфигурация
 
-### Проблемы с базой данных
+Все параметры задаются через переменные окружения (`.env`).
 
-1. Убедитесь, что есть права на запись в директорию
-2. Проверьте путь к базе данных в `DATABASE_URL`
-3. При необходимости удалите `bot.db` для пересоздания
+| Переменная | По умолчанию | Описание |
+|------------|-------------|----------|
+| `BOT_TOKEN` | — | **Обязательно.** Токен от @BotFather |
+| `ADMIN_IDS` | — | Telegram ID администраторов (через запятую) |
+| `NVD_API_KEY` | — | API-ключ NVD для CVE ([получить](https://nvd.nist.gov/developers/request-an-api-key)) |
+| `DATABASE_URL` | `sqlite:///./bot.db` | SQLite или PostgreSQL |
+| `RELEASE_TTL` | `21600` | Кэш релизов (сек) |
+| `PRODUCTS_TTL` | `86400` | Кэш списка продуктов (сек) |
+| `CVE_TTL` | `43200` | Кэш CVE (сек) |
+| `MAX_PARALLEL` | `15` | Макс. параллельных запросов |
+| `RATE_LIMIT_PER_MINUTE` | `20` | Лимит запросов/мин на пользователя |
+| `RATE_LIMIT_PER_HOUR` | `200` | Лимит запросов/час на пользователя |
+| `SCHEDULER_INTERVAL` | `21600` | Интервал проверки подписок (сек) |
+| `NOTIFICATION_ENABLED` | `true` | Включить уведомления |
+| `LOG_LEVEL` | `INFO` | Уровень логирования |
 
-### Уведомления не приходят
+Полный пример — в [`.env.example`](.env.example).
 
-1. Проверьте `NOTIFICATION_ENABLED=true`
-2. Убедитесь, что подписки активны: `/subscriptions`
-3. Проверьте логи scheduler'а
+## Архитектура
 
-### CVE не находятся
+```
+VersionCheckBotTG/
+├── bot.py                  # Точка входа
+├── config.py               # Конфигурация (dataclass + валидация)
+├── bot/
+│   ├── handlers/           # Telegram-обработчики
+│   │   ├── commands.py     #   команды (/check, /subscribe, /admin, ...)
+│   │   ├── callbacks.py    #   inline-кнопки
+│   │   ├── inline.py       #   inline-режим
+│   │   └── messages.py     #   текст и файлы
+│   ├── services/           # Бизнес-логика
+│   │   ├── version_service.py      # endoflife.date API
+│   │   ├── cve_service.py          # NVD API
+│   │   ├── monitoring_service.py   # Подписки
+│   │   └── notification_service.py # Уведомления
+│   ├── models/             # SQLAlchemy-модели
+│   ├── database/           # Engine + Session
+│   ├── scheduler/          # Фоновые задачи
+│   └── utils/              # Кэш, парсер, fuzzy, rate limiter, retry, ...
+├── alembic/                # Миграции БД
+├── tests/                  # Тесты (pytest)
+├── scripts/                # Утилиты (миграции, backup)
+├── Dockerfile
+├── docker-compose.yml
+└── docker-compose.dev.yml
+```
 
-1. Убедитесь, что указан `NVD_API_KEY` (рекомендуется)
-2. Проверьте формат запроса: `/cve python 3.11`
-3. Некоторые продукты могут не иметь CVE в базе NVD
+### Слои
 
-## 📝 Changelog
+```
+ Telegram (handlers)
+        │
+ Services (version, cve, monitoring, notification)
+        │
+ Data (SQLAlchemy models, TTLCache, aiohttp → endoflife.date / NVD)
+        │
+ Scheduler (background subscription & CVE checks)
+```
 
-### Version 2.0.0
+### Ключевые паттерны
 
-- ✨ Полный рефакторинг архитектуры
-- ✨ Добавлена система подписок и мониторинга
-- ✨ Интеграция с NVD API для CVE
-- ✨ Улучшенная обработка ошибок с retry логикой
-- ✨ Персистентный кэш
-- ✨ Фоновый scheduler для автоматических проверок
-- ✨ Административные команды
-- ✨ Inline keyboards для удобства
+- **Singleton** — `VersionService.shared()` предотвращает утечки aiohttp-сессий
+- **Circuit Breaker** — защита от каскадных сбоев при недоступности API
+- **Token Bucket / Sliding Window** — rate limiting для API и пользователей
+- **Retry с exponential backoff** — автоматические повторы при ошибках
+- **TTL Cache с disk persistence** — быстрый доступ + переживание рестартов
+- **Decorator stack** — `@error_handler` > `@access_required` > `@rate_limit_handler`
 
-### Version 1.0.0
+## Docker
 
-- 🎉 Первый релиз
-- ✨ Базовая проверка версий через endoflife.date
-- ✨ Inline режим
-- ✨ Поддержка файлов
+### Production
 
-## 📄 Лицензия
+```bash
+docker compose up -d
+```
 
-MIT License. См. файл [LICENSE](LICENSE) для деталей.
+### Development (с PostgreSQL)
 
-## 👤 Автор
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
 
-[therudywolf](https://github.com/therudywolf)
+В dev-режиме исходники монтируются в контейнер, логирование установлено в `DEBUG`.
 
-## 🤝 Вклад
+## Тестирование
 
-Вклады приветствуются! Пожалуйста, откройте issue или pull request.
+```bash
+pytest
+```
 
-## 🔗 Полезные ссылки
+С покрытием:
 
-- [endoflife.date](https://endoflife.date) — источник данных о EOL
-- [NVD API](https://nvd.nist.gov/developers/vulnerabilities) — источник CVE данных
-- [python-telegram-bot](https://python-telegram-bot.org/) — библиотека для Telegram ботов
+```bash
+pytest --cov=bot --cov-report=html
+```
+
+## Участие в проекте
+
+Приветствуются любые вклады! См. [CONTRIBUTING.md](CONTRIBUTING.md) и [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+1. Fork репозитория
+2. Создайте ветку (`git checkout -b feature/my-feature`)
+3. Закоммитьте (`git commit -m 'feat: add my feature'`)
+4. Push (`git push origin feature/my-feature`)
+5. Откройте Pull Request
+
+## Лицензия
+
+[MIT](LICENSE) &copy; 2024-2026 [therudywolf](https://github.com/therudywolf)
 
 ---
 
-**Сделано с ❤️ для сообщества разработчиков**
+<a id="english"></a>
+
+## English
+
+**VersionCheckBot** is a Telegram bot that monitors software versions, checks End-of-Life status, and tracks CVE vulnerabilities. It uses the free [endoflife.date](https://endoflife.date) API (450+ products) and [NVD](https://nvd.nist.gov/) for CVE data.
+
+### Features
+
+- Version status checks with EOL dates and latest releases
+- Subscriptions with automatic status change notifications
+- CVE search and monitoring via NVD API
+- Inline mode for quick lookups from any chat
+- Fuzzy product name matching with alias support
+- File processing (`.txt` lists), export/import (JSON/CSV)
+- Favorites, query history, notification preferences
+- Admin panel: access modes, broadcasts, stats, database backup
+
+### Quick Start
+
+```bash
+git clone https://github.com/therudywolf/VersionCheckBotTG.git
+cd VersionCheckBotTG
+cp .env.example .env       # set BOT_TOKEN
+pip install -r requirements.txt
+python bot.py
+```
+
+Or with Docker:
+
+```bash
+docker compose up -d
+```
+
+### Configuration
+
+All settings are environment variables. See [`.env.example`](.env.example) for the full list. Only `BOT_TOKEN` is required.
+
+### License
+
+[MIT](LICENSE)
