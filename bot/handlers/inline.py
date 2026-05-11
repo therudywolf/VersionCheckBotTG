@@ -35,7 +35,6 @@ def error_handler(func):
 @error_handler
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline queries."""
-    # Check access
     from bot.database.db import get_db
     from bot.utils.access_control import has_access
     db_gen = get_db()
@@ -51,7 +50,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not query:
         return
     
-    version_service = VersionService()
+    vs = VersionService.shared()
     
     try:
         parsed = parse(query)
@@ -60,34 +59,30 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             slug, ver = query, None
         
-        choices = await version_service.products()
+        choices = await vs.products()
         best = sugg(slug, choices)
         results = []
         
-        for idx, s in enumerate(best[:10]):  # Limit to 10 results
+        for idx, s in enumerate(best[:10]):
             try:
-                status = await version_service.status_line(s, ver)
+                status = await vs.status_line(s, ver)
                 
-                # Get more details for description
-                releases = await version_service.releases(s)
+                releases = await vs.releases(s)
                 detail_text = status
                 if releases and len(releases) > 0:
                     latest_release = releases[0]
-                    cycle = latest_release.get('cycle') or latest_release.get('releaseCycle', 'N/A')
-                    latest = latest_release.get('latest', 'N/A')
-                    eol = latest_release.get('eol', 'N/A')
+                    latest = vs._release_latest(latest_release)
+                    eol = vs._release_eol(latest_release) or "N/A"
                     detail_text = f"{status}\nПоследний: {latest} | EOL: {eol}"
                 
-                # Create keyboard with actions
                 keyboard = [
                     [
-                        InlineKeyboardButton("📋 Подписаться", callback_data=f"sub_{s}_{ver or 'all'}"),
-                        InlineKeyboardButton("🔍 Детали", callback_data=f"detail_{s}_{ver or 'all'}")
+                        InlineKeyboardButton("📋 Подписаться", callback_data=f"sub:{s}:{ver or 'all'}"),
+                        InlineKeyboardButton("🔍 Детали", callback_data=f"detail:{s}:{ver or 'all'}")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                # Clean title
                 title = status.split(EMOJI_ARROW)[0].strip(f'{EMOJI_CHECK}{EMOJI_CROSS} ')
                 if len(title) > 50:
                     title = title[:47] + "..."
@@ -109,4 +104,3 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         log.error(f"Error in inline query: {e}", exc_info=True)
         await update.inline_query.answer([], cache_time=0)
-

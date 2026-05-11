@@ -59,6 +59,7 @@ __pycache__/
 .mypy_cache/
 *.pyc
 /tmp/
+cache/
 eol_cache.json
 eol_products_cache_ru.json
 

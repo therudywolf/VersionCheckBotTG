@@ -1,5 +1,6 @@
 """Service for checking software version EOL status via endoflife.date API."""
 import aiohttp
+import asyncio
 import time
 import logging
 import json
@@ -17,11 +18,6 @@ from bot.utils.parser import _normalize_version
 from config import settings
 
 log = logging.getLogger(__name__)
-import asyncio
-
-# Initialize cache with configurable path
-from config import settings
-from pathlib import Path
 
 cache_dir = Path(settings.CACHE_DIR)
 cache_dir.mkdir(parents=True, exist_ok=True)
@@ -36,34 +32,25 @@ class VersionService:
     
     Provides methods to check software version EOL status, get release information,
     and format status messages for users.
-    
-    Example:
-        ```python
-        service = VersionService()
-        releases = await service.releases("python")
-        status = await service.status_line("python", "3.11")
-        ```
     """
     
+    _shared_instance: Optional["VersionService"] = None
+
+    @classmethod
+    def shared(cls) -> "VersionService":
+        """Return a shared singleton instance to avoid session leaks."""
+        if cls._shared_instance is None or (cls._shared_instance._sess and cls._shared_instance._sess.closed):
+            cls._shared_instance = cls()
+        return cls._shared_instance
+
     def __init__(self):
-        """
-        Initialize VersionService.
-        
-        Creates empty session and product list. Session is created lazily on first use.
-        """
         self._sess: Optional[aiohttp.ClientSession] = None
         self._products: List[str] = []
         self._aliases: Dict[str, str] = {}
         self._prod_ts = 0
 
     async def _session(self) -> aiohttp.ClientSession:
-        """
-        Get or create aiohttp session with connection pooling.
-        
-        Returns:
-            aiohttp.ClientSession instance with connection pooling
-        """
-        if not self._sess:
+        if not self._sess or self._sess.closed:
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)
             self._sess = aiohttp.ClientSession(
                 raise_for_status=True,
@@ -73,26 +60,13 @@ class VersionService:
         return self._sess
 
     async def _fetch_json(self, path: str) -> Any:
-        """
-        Fetch JSON data from API with retry logic, rate limiting, and circuit breaker.
-        
-        Args:
-            path: API path (relative to API_ROOT)
-            
-        Returns:
-            Parsed JSON data
-            
-        Raises:
-            aiohttp.ClientError: If request fails after retries
-        """
+        """Fetch JSON data from API with retry logic, rate limiting, and circuit breaker."""
         from bot.utils.api_rate_limiter import get_api_rate_limiter
         from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
         
-        # Get rate limiter for endoflife.date API
         rate_limiter = get_api_rate_limiter()
         await rate_limiter.wait_for_api("endoflife.date")
         
-        # Circuit breaker for API calls
         if not hasattr(self, '_circuit_breaker'):
             self._circuit_breaker = CircuitBreaker(
                 "endoflife.date",
@@ -111,7 +85,6 @@ class VersionService:
                 r.raise_for_status()
                 return await r.json()
         
-        # Use circuit breaker
         async def fetch_with_cb():
             return await self._circuit_breaker.call(_fetch)
         
@@ -124,14 +97,8 @@ class VersionService:
         )
 
     async def products(self) -> List[str]:
-        """
-        Get list of available products.
-        
-        Returns:
-            List of product slugs
-        """
+        """Get list of available products."""
         if self._products and time.time() - self._prod_ts < settings.PRODUCTS_TTL:
-            log.debug(f"Returning cached products list ({len(self._products)} items)")
             return self._products
         
         try:
@@ -142,7 +109,6 @@ class VersionService:
             self._aliases = aliases
             self._prod_ts = time.time()
             
-            # Save to disk
             try:
                 _disk.write_text(json.dumps({
                     "ts": self._prod_ts,
@@ -154,7 +120,6 @@ class VersionService:
                 log.warning(f"Failed to save products to disk: {e}")
         except Exception as e:
             log.error(f"Failed to fetch products from API: {e}")
-            # Try to load from disk
             if _disk.exists():
                 try:
                     tmp = json.loads(_disk.read_text())
@@ -218,19 +183,10 @@ class VersionService:
         return canonical
 
     async def releases(self, slug: str) -> Optional[List[Dict]]:
-        """
-        Get release information for a product.
-        
-        Args:
-            slug: Product slug
-            
-        Returns:
-            List of release dictionaries or None if not found
-        """
+        """Get release information for a product."""
         resolved_slug = await self.resolve_slug(slug)
         cached = await _cache.get(resolved_slug, settings.RELEASE_TTL)
         if cached is not None:
-            log.debug(f"Returning cached releases for {resolved_slug}")
             return cached
         
         log.info(f"Fetching releases for {resolved_slug}")
@@ -243,7 +199,6 @@ class VersionService:
                 return releases
             except aiohttp.ClientResponseError as e:
                 if e.status == 404:
-                    log.debug(f"Product {resolved_slug} not found at {variant}")
                     continue
                 log.warning(f"Error fetching {variant}: {e}")
             except Exception as e:
@@ -270,16 +225,7 @@ class VersionService:
             await self._sess.close()
 
     def _eol_ru(self, eol_raw: Any, today: dt.date) -> str:
-        """
-        Format EOL date in Russian.
-        
-        Args:
-            eol_raw: Raw EOL date (string or None)
-            today: Today's date
-            
-        Returns:
-            Formatted EOL string in Russian
-        """
+        """Format EOL date in Russian."""
         if isinstance(eol_raw, str) and eol_raw:
             try:
                 dt_obj = dt.date.fromisoformat(eol_raw)
@@ -294,15 +240,7 @@ class VersionService:
         return "дата EOL не указана"
 
     def _is_supported(self, rel: Dict) -> bool:
-        """
-        Check if release is supported.
-        
-        Args:
-            rel: Release dictionary
-            
-        Returns:
-            True if supported, False otherwise
-        """
+        """Check if release is supported."""
         if "isMaintained" in rel:
             return bool(rel.get("isMaintained"))
         if "isEol" in rel:
@@ -383,16 +321,7 @@ class VersionService:
         return "unknown"
 
     async def status_line(self, slug: str, version: Optional[str]) -> str:
-        """
-        Get status line for a product/version.
-        
-        Args:
-            slug: Product slug
-            version: Optional version string
-            
-        Returns:
-            Formatted status line
-        """
+        """Get status line for a product/version."""
         display_slug = await self.resolve_slug(slug)
         data = await self.releases(display_slug)
         if data is None:
@@ -407,18 +336,7 @@ class VersionService:
         return f"{sup_flag} {display_slug} {cycle} {EMOJI_ARROW} {latest} ({eol_desc})"
 
     def table(self, slug: str, data: List[Dict], highlight_version: Optional[str] = None, rows: int = DEFAULT_TABLE_ROWS) -> str:
-        """
-        Format release data as a markdown table.
-        
-        Args:
-            slug: Product slug
-            data: List of release dictionaries
-            highlight_version: Optional version to highlight
-            rows: Maximum number of rows to show
-            
-        Returns:
-            Formatted markdown table string
-        """
+        """Format release data as a markdown table."""
         head = f"*{slug} — релизы*\n```Релиз | Последний | Подд | EOL\n------ | -------- | ---- | ----------"
         lines = []
         highlight_low = highlight_version.lower() if highlight_version else ""

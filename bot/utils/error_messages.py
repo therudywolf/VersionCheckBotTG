@@ -17,7 +17,7 @@ class ErrorMessages:
     VERSION_INVALID = "Неверный формат версии: {version}"
     
     # Subscription errors
-    SUBSCRIPTION_EXISTS = "Вы уже подписаны на {product}" + (" {version}" if "{version}" else "")
+    SUBSCRIPTION_EXISTS = "Вы уже подписаны на {product}"
     SUBSCRIPTION_NOT_FOUND = "Подписка не найдена."
     SUBSCRIPTION_ALREADY_CANCELLED = "Подписка уже отменена."
     
@@ -54,4 +54,3 @@ class ErrorMessages:
             return message.format(**kwargs)
         except KeyError:
             return message
-

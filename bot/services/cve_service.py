@@ -20,8 +20,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Initialize cache with configurable path
-
 cache_dir = Path(settings.CACHE_DIR)
 cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -32,18 +30,12 @@ class CVEService:
     """Service for interacting with NVD API to get CVE data."""
     
     def __init__(self, db: Optional[Session] = None):
-        """
-        Initialize CVE service.
-        
-        Args:
-            db: Optional database session for caching
-        """
         self.db = db
         self._sess: Optional[aiohttp.ClientSession] = None
     
     async def _session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session with connection pooling."""
-        if not self._sess:
+        if not self._sess or self._sess.closed:
             headers = {}
             if settings.NVD_API_KEY:
                 headers["apiKey"] = settings.NVD_API_KEY
@@ -57,21 +49,10 @@ class CVEService:
         return self._sess
     
     async def _fetch_json(self, url: str, params: Optional[Dict] = None) -> Any:
-        """
-        Fetch JSON data from NVD API with retry logic, rate limiting, and circuit breaker.
-        
-        Args:
-            url: Full API URL
-            params: Optional query parameters
-            
-        Returns:
-            Parsed JSON data
-        """
+        """Fetch JSON data from NVD API with retry logic, rate limiting, and circuit breaker."""
         from bot.utils.api_rate_limiter import get_api_rate_limiter, RateLimitConfig
         from bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
         
-        # NVD API has strict rate limits: 5 requests per 30 seconds without API key
-        # With API key: 50 requests per 30 seconds
         if settings.NVD_API_KEY:
             rate_config = RateLimitConfig(requests_per_second=50.0/30.0, burst_size=10)
         else:
@@ -80,13 +61,12 @@ class CVEService:
         rate_limiter = get_api_rate_limiter()
         await rate_limiter.wait_for_api("nvd", rate_config)
         
-        # Circuit breaker for NVD API
         if not hasattr(self, '_circuit_breaker'):
             self._circuit_breaker = CircuitBreaker(
                 "nvd",
                 CircuitBreakerConfig(
                     failure_threshold=3,
-                    timeout=120.0,  # Wait 2 minutes before retry
+                    timeout=120.0,
                     expected_exception=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
                 )
             )
@@ -98,29 +78,19 @@ class CVEService:
                 r.raise_for_status()
                 return await r.json()
         
-        # Use circuit breaker
         async def fetch_with_cb():
             return await self._circuit_breaker.call(_fetch)
         
         return await retry_async(
             fetch_with_cb,
             max_attempts=DEFAULT_MAX_RETRIES,
-            delay=DEFAULT_RETRY_DELAY * 2,  # NVD has rate limits
+            delay=DEFAULT_RETRY_DELAY * 2,
             backoff=DEFAULT_RETRY_BACKOFF,
             exceptions=(aiohttp.ClientError, aiohttp.ServerTimeoutError, asyncio.TimeoutError)
         )
     
     def _normalize_product_name(self, product: str) -> str:
-        """
-        Normalize product name for CVE search.
-        
-        Args:
-            product: Product name
-            
-        Returns:
-            Normalized product name
-        """
-        # Common mappings
+        """Normalize product name for CVE search."""
         mappings = {
             "python": "python",
             "nodejs": "node.js",
@@ -139,32 +109,18 @@ class CVEService:
         version: Optional[str] = None,
         limit: int = DEFAULT_CVE_LIMIT
     ) -> List[Dict[str, Any]]:
-        """
-        Search for CVEs related to a product/version.
-        
-        Args:
-            product: Product name
-            version: Optional version string
-            limit: Maximum number of results
-            
-        Returns:
-            List of CVE dictionaries
-        """
-        # Check cache first
+        """Search for CVEs related to a product/version."""
         cache_key = f"cve_{product}_{version or 'all'}"
         cached = await _cache.get(cache_key, settings.CVE_TTL)
         if cached is not None:
-            log.debug(f"Returning cached CVE data for {product}")
             return cached[:limit]
         
         try:
-            # Build search query
             normalized_product = self._normalize_product_name(product)
-            keyword = f"{normalized_product}"
+            keyword = normalized_product
             if version:
                 keyword += f" {version}"
             
-            # NVD API v2.0 endpoint
             url = f"{settings.NVD_API_ROOT}/cves/2.0"
             params = {
                 "keywordSearch": keyword,
@@ -174,14 +130,12 @@ class CVEService:
             
             data = await self._fetch_json(url, params)
             
-            # Parse results
             cves = []
             if "vulnerabilities" in data:
                 for vuln in data["vulnerabilities"]:
                     cve_data = vuln.get("cve", {})
                     cve_id = cve_data.get("id", "")
                     
-                    # Extract severity
                     severity = None
                     if "metrics" in cve_data:
                         if "cvssMetricV31" in cve_data["metrics"]:
@@ -207,7 +161,6 @@ class CVEService:
                             else:
                                 severity = CVE_SEVERITY_LOW
                     
-                    # Extract description
                     description = ""
                     if "descriptions" in cve_data:
                         for desc in cve_data["descriptions"]:
@@ -215,18 +168,17 @@ class CVEService:
                                 description = desc.get("value", "")
                                 break
                     
-                    # Extract dates
                     published_date = None
                     last_modified = None
                     if "published" in cve_data:
                         try:
                             published_date = datetime.fromisoformat(cve_data["published"].replace("Z", "+00:00"))
-                        except:
+                        except Exception:
                             pass
                     if "lastModified" in cve_data:
                         try:
                             last_modified = datetime.fromisoformat(cve_data["lastModified"].replace("Z", "+00:00"))
-                        except:
+                        except Exception:
                             pass
                     
                     cves.append({
@@ -234,15 +186,13 @@ class CVEService:
                         "product": product,
                         "version": version,
                         "severity": severity,
-                        "description": description[:500] if description else "",  # Limit length
+                        "description": description[:500] if description else "",
                         "published_date": published_date,
                         "last_modified": last_modified
                     })
             
-            # Cache results
             await _cache.set(cache_key, cves)
             
-            # Save to database if available
             if self.db:
                 self._save_cves_to_db(cves)
             
@@ -258,7 +208,6 @@ class CVEService:
         
         try:
             for cve_data in cves:
-                # Check if already exists
                 existing = self.db.query(CVERecord).filter(
                     CVERecord.cve_id == cve_data["cve_id"]
                 ).first()
@@ -275,7 +224,6 @@ class CVEService:
                     )
                     self.db.add(record)
                 else:
-                    # Update if modified date is newer
                     if cve_data.get("last_modified") and existing.last_modified:
                         if cve_data["last_modified"] > existing.last_modified:
                             existing.severity = cve_data.get("severity")
@@ -292,29 +240,9 @@ class CVEService:
         product: str,
         days: int = 7
     ) -> List[Dict[str, Any]]:
-        """
-        Get recent CVEs for a product.
-        
-        Args:
-            product: Product name
-            days: Number of days to look back
-            
-        Returns:
-            List of recent CVE dictionaries
-        """
-        """
-        Get recent CVEs for a product.
-        
-        Args:
-            product: Product name
-            days: Number of days to look back
-            
-        Returns:
-            List of recent CVE dictionaries
-        """
+        """Get recent CVEs for a product."""
         cutoff_date = datetime.utcnow() - timedelta(seconds=days * SECONDS_PER_DAY)
         
-        # Try database first
         if self.db:
             records = self.db.query(CVERecord).filter(
                 and_(
@@ -334,17 +262,14 @@ class CVEService:
                     "last_modified": r.last_modified
                 } for r in records]
         
-        # Fallback to API search
         return await self.search_cve(product, limit=DEFAULT_CVE_LIMIT * 4)
     
     async def close(self):
         """Close aiohttp session and cleanup."""
         if self._sess and not self._sess.closed:
             await self._sess.close()
-        # Save cache to disk on close
         if _cache:
             try:
-                await _cache._save_to_disk()
+                _cache._save_to_disk()
             except Exception as e:
                 log.warning(f"Error saving cache on close: {e}")
-

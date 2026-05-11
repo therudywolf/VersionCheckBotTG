@@ -7,51 +7,25 @@ from functools import wraps
 
 from bot.services.version_service import VersionService
 from bot.utils.parser import parse
-from bot.handlers.commands import respond_to_query
+from bot.handlers.commands import respond_to_query, error_handler, access_required, rate_limit_handler
 
 log = logging.getLogger(__name__)
 
 
-def error_handler(func):
-    """Decorator for error handling in handlers."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return await func(update, context, *args, **kwargs)
-        except Exception as e:
-            log.error(f"Error in {func.__name__}: {e}", exc_info=True)
-            if update and update.message:
-                await update.message.reply_text(
-                    "Произошла ошибка при обработке сообщения. Попробуйте позже."
-                )
-    return wrapper
-
-
 @error_handler
+@access_required
+@rate_limit_handler
 async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages."""
     if not update.message or not update.message.text:
         return
     
-    # Check access
-    from bot.database.db import get_db
-    from bot.utils.access_control import has_access
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
-        if not has_access(db, update.effective_user.id):
-            await update.message.reply_text(
-                "❌ У вас нет доступа к боту.\n"
-                "Обратитесь к администратору для получения доступа."
-            )
-            return
-    finally:
-        db.close()
-    
     await respond_to_query(update, update.message.text)
 
 
 @error_handler
+@access_required
+@rate_limit_handler
 async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle file messages (txt files)."""
     if not update.message or not update.message.document:
@@ -76,4 +50,3 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         log.error(f"Error processing file: {e}", exc_info=True)
         from bot.utils.error_messages import ErrorMessages
         await update.message.reply_text(ErrorMessages.FILE_READ_ERROR)
-

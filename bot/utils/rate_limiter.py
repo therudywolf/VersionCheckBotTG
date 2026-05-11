@@ -5,8 +5,6 @@ from collections import defaultdict
 from typing import Dict, Tuple, Optional
 
 from bot.utils.constants import (
-    DEFAULT_RATE_LIMIT_PER_MINUTE,
-    DEFAULT_RATE_LIMIT_PER_HOUR,
     SECONDS_PER_MINUTE,
     SECONDS_PER_HOUR
 )
@@ -17,8 +15,8 @@ class RateLimiter:
     
     def __init__(
         self,
-        requests_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
-        requests_per_hour: int = DEFAULT_RATE_LIMIT_PER_HOUR
+        requests_per_minute: int = 20,
+        requests_per_hour: int = 200
     ):
         """
         Initialize rate limiter.
@@ -65,13 +63,11 @@ class RateLimiter:
     
     def _clean_old_requests(self, user_id: int, current_time: float):
         """Clean old requests outside the time windows."""
-        # Clean minute requests older than 1 minute
         minute_cutoff = current_time - SECONDS_PER_MINUTE
         self._minute_requests[user_id] = [
             ts for ts in self._minute_requests[user_id] if ts > minute_cutoff
         ]
         
-        # Clean hour requests older than 1 hour
         hour_cutoff = current_time - SECONDS_PER_HOUR
         self._hour_requests[user_id] = [
             ts for ts in self._hour_requests[user_id] if ts > hour_cutoff
@@ -97,11 +93,16 @@ class RateLimiter:
             }
 
 
-# Global rate limiter instance
-_rate_limiter = RateLimiter()
+_rate_limiter: Optional[RateLimiter] = None
 
 
 def get_rate_limiter() -> RateLimiter:
-    """Get global rate limiter instance."""
+    """Get global rate limiter instance, initialized from config."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        from config import settings
+        _rate_limiter = RateLimiter(
+            requests_per_minute=settings.RATE_LIMIT_PER_MINUTE,
+            requests_per_hour=settings.RATE_LIMIT_PER_HOUR
+        )
     return _rate_limiter
-

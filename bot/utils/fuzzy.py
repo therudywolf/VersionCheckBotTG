@@ -15,7 +15,9 @@ try:
         Returns:
             List of best matching choices
         """
-        return [m for m, _ in process.extract(query, choices, scorer=fuzz.WRatio, limit=n)]
+        if not choices:
+            return []
+        return [m for m, _, _ in process.extract(query, choices, scorer=fuzz.WRatio, limit=n)]
 except ImportError:
     import difflib
     
@@ -32,4 +34,3 @@ except ImportError:
             List of best matching choices
         """
         return difflib.get_close_matches(query, choices, n=n, cutoff=0.6)
-

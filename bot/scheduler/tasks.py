@@ -17,17 +17,9 @@ class Scheduler:
     """Scheduler for background tasks."""
     
     def __init__(self, bot):
-        """
-        Initialize scheduler.
-        
-        Args:
-            bot: Telegram bot instance
-        """
         self.bot = bot
         self.running = False
         self._task = None
-        
-        # Reusable service instances
         self.version_service = None
         self._shutdown_event = asyncio.Event()
     
@@ -35,15 +27,12 @@ class Scheduler:
         """Periodically check all subscriptions for status changes."""
         log.info("Starting subscription check task")
         
-        # Initialize reusable service
         if not self.version_service:
             self.version_service = VersionService()
         
         while self.running:
             try:
-                # Check for shutdown signal
                 if self._shutdown_event.is_set():
-                    log.info("Shutdown signal received, stopping subscription check task")
                     break
                 
                 db_gen = get_db()
@@ -52,24 +41,16 @@ class Scheduler:
                     monitoring_service = MonitoringService(db, self.version_service)
                     notification_service = NotificationService(db, self.bot)
                     
-                    # Check all subscriptions with batch processing
                     changes = await monitoring_service.check_all_subscriptions(batch_size=10)
                     
-                    # Send notifications for changes
                     for change in changes:
                         subscription = change["subscription"]
-                        user_id = subscription.user_id
-                        product_slug = subscription.product_slug
-                        version = subscription.version
-                        old_status = change["old_status"]
-                        new_status = change["new_status"]
-                        
                         await notification_service.notify_status_change(
-                            user_id=user_id,
-                            product_slug=product_slug,
-                            version=version,
-                            old_status=old_status,
-                            new_status=new_status,
+                            user_id=subscription.user_id,
+                            product_slug=subscription.product_slug,
+                            version=subscription.version,
+                            old_status=change["old_status"],
+                            new_status=change["new_status"],
                             subscription_id=subscription.id
                         )
                     
@@ -78,20 +59,16 @@ class Scheduler:
                 finally:
                     db.close()
                 
-                # Wait for next interval (with ability to interrupt for shutdown)
                 try:
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
                         timeout=settings.SCHEDULER_INTERVAL
                     )
-                    # Shutdown signal received
                     break
                 except asyncio.TimeoutError:
-                    # Normal timeout, continue loop
                     pass
             except Exception as e:
                 log.error(f"Error in subscription check task: {e}", exc_info=True)
-                # Wait before retry, but check for shutdown
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=60)
                     break
@@ -102,31 +79,25 @@ class Scheduler:
         """Periodically check for new CVEs for subscribed products."""
         log.info("Starting CVE check task")
         
-        # Initialize reusable service
         if not self.version_service:
             self.version_service = VersionService()
         
         while self.running:
             try:
-                # Check for shutdown signal
                 if self._shutdown_event.is_set():
-                    log.info("Shutdown signal received, stopping CVE check task")
                     break
                 
                 db_gen = get_db()
                 db = next(db_gen)
                 try:
-                    monitoring_service = MonitoringService(db, self.version_service)
                     cve_service = CVEService(db)
                     notification_service = NotificationService(db, self.bot)
                     
-                    # Get all active subscriptions
-                    from bot.models import Subscription
+                    from bot.models import Subscription, Notification
                     subscriptions = db.query(Subscription).filter(
                         Subscription.is_active == True
                     ).all()
                     
-                    # Group by product
                     products = {}
                     for sub in subscriptions:
                         key = (sub.product_slug, sub.version)
@@ -134,30 +105,28 @@ class Scheduler:
                             products[key] = []
                         products[key].append(sub)
                     
-                    # Check for new CVEs
                     for (product_slug, version), subs in products.items():
                         try:
-                            # Get recent CVEs (last 7 days)
                             recent_cves = await cve_service.get_recent_cves(product_slug, days=7)
                             
-                            # Check if any are new (not in database or recently published)
                             for cve in recent_cves:
-                                # Check if we already notified about this CVE
-                                from bot.models import Notification
-                                existing = db.query(Notification).filter(
-                                    Notification.user_id.in_([s.user_id for s in subs]),
-                                    Notification.notification_type == "new_cve",
-                                    Notification.message.like(f"%{cve['cve_id']}%")
-                                ).first()
-                                
-                                if not existing:
-                                    # Send notifications to all subscribers
-                                    for sub in subs:
+                                cve_id = cve.get("cve_id", "")
+                                if not cve_id:
+                                    continue
+
+                                for sub in subs:
+                                    already_notified = db.query(Notification).filter(
+                                        Notification.user_id == sub.user_id,
+                                        Notification.notification_type == "new_cve",
+                                        Notification.message.like(f"%{cve_id}%")
+                                    ).first()
+                                    
+                                    if not already_notified:
                                         await notification_service.notify_new_cve(
                                             user_id=sub.user_id,
                                             product_slug=product_slug,
                                             version=version,
-                                            cve_id=cve.get("cve_id", ""),
+                                            cve_id=cve_id,
                                             severity=cve.get("severity"),
                                             subscription_id=sub.id
                                         )
@@ -166,20 +135,16 @@ class Scheduler:
                 finally:
                     db.close()
                 
-                # Wait 24 hours before next check (with ability to interrupt for shutdown)
                 try:
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
-                        timeout=86400  # 24 hours
+                        timeout=86400
                     )
-                    # Shutdown signal received
                     break
                 except asyncio.TimeoutError:
-                    # Normal timeout, continue loop
                     pass
             except Exception as e:
                 log.error(f"Error in CVE check task: {e}", exc_info=True)
-                # Wait before retry, but check for shutdown
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=3600)
                     break
@@ -194,8 +159,6 @@ class Scheduler:
         
         self.running = True
         log.info("Starting scheduler")
-        
-        # Start tasks
         self._task = asyncio.create_task(self._run_tasks())
     
     async def stop(self):
@@ -205,15 +168,11 @@ class Scheduler:
         
         log.info("Stopping scheduler gracefully...")
         self.running = False
-        
-        # Signal shutdown to all tasks
         self._shutdown_event.set()
         
-        # Close version service if initialized
         if self.version_service:
             await self.version_service.close()
         
-        # Wait for tasks to finish (with timeout)
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=30)
@@ -237,4 +196,3 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Error in scheduler tasks: {e}", exc_info=True)
-
