@@ -29,7 +29,7 @@ def add_license_header(file_path: Path) -> bool:
             content = f.read()
 
         if has_license_header(content):
-            print(f"✓ {file_path.relative_to('.')}: Already has license header")
+            print(f"[OK] {file_path.relative_to('.')}: Already has license header")
             return False
 
         # Skip shebang if it exists
@@ -44,11 +44,11 @@ def add_license_header(file_path: Path) -> bool:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
 
-        print(f"✓ {file_path.relative_to('.')}: Added license header")
+        print(f"[+] {file_path.relative_to('.')}: Added license header")
         return True
 
     except Exception as e:
-        print(f"✗ {file_path.relative_to('.')}: Error - {e}")
+        print(f"[-] {file_path.relative_to('.')}: Error - {e}")
         return False
 
 
