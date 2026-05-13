@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.0] - 2026-05-12
 
+### Changed
+- Re-license the project from MIT to GNU Affero General Public License v3.0.
+- Add repository hygiene notes for secrets, local state, and generated files.
+
 ### Fixed
 - Fix `rapidfuzz.process.extract()` tuple unpacking (3-tuple, not 2-tuple)
 - Fix `await` on synchronous `_save_to_disk()` in CVE service

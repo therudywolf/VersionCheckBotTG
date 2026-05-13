@@ -58,9 +58,6 @@ cache/
 .mypy_cache/
 /tmp/
 
-# Docker
-.dockerignore
-
 # OS
 .DS_Store
 Thumbs.db

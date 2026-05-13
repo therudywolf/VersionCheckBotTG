@@ -1,3 +1,9 @@
+"""
+VersionCheckBot - Telegram bot for monitoring software versions and CVE vulnerabilities
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+Copyright (c) 2024 VersionCheckBot Contributors
+"""
 """Parser for extracting product names and versions from free-form text."""
 from typing import List, Optional, Tuple
 

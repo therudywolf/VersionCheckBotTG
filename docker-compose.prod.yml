@@ -1,0 +1,71 @@
+version: '3.9'
+
+services:
+  bot:
+    build: .
+    container_name: versioncheckbot
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - bot-data:/app/data
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; sys.exit(0 if os.path.isfile('data/bot.db') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - botnet
+    depends_on:
+      - postgres
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: versioncheckbot-web
+    env_file: .env
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - bot-data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - botnet
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: versioncheckbot-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-botdb}
+      POSTGRES_USER: ${POSTGRES_USER:-botuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - botnet
+    restart: unless-stopped
+
+volumes:
+  bot-data:
+  postgres-data:
+
+networks:
+  botnet:
+    driver: bridge

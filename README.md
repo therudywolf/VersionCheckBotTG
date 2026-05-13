@@ -1,7 +1,7 @@
 # VersionCheckBot
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Telegram Bot API](https://img.shields.io/badge/Telegram%20Bot%20API-21.x-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
 [![endoflife.date](https://img.shields.io/badge/data-endoflife.date-orange)](https://endoflife.date)
 
@@ -43,7 +43,7 @@ cp .env.example .env
 Откройте `.env` и укажите `BOT_TOKEN` (получить у [@BotFather](https://t.me/BotFather)):
 
 ```env
-BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+BOT_TOKEN=<telegram_bot_token>
 ```
 
 ### 3. Запуск
@@ -190,6 +190,15 @@ pytest
 pytest --cov=bot --cov-report=html
 ```
 
+## Безопасность и FOSS hygiene
+
+- Не коммитьте `.env`, логи, кэш, SQLite-базы, backup-файлы, IDE-state и `__pycache__`.
+- Реальные токены и пароли храните только в `.env` или secret store деплоя.
+- Если токен Telegram/NVD или пароль попал в историю git, перевыпустите его у провайдера.
+- Перед публикацией проверяйте `git status --ignored` и `git diff --cached`.
+
+Подробности см. в [SECURITY.md](SECURITY.md).
+
 ## Участие в проекте
 
 Приветствуются любые вклады! См. [CONTRIBUTING.md](CONTRIBUTING.md) и [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
@@ -202,7 +211,7 @@ pytest --cov=bot --cov-report=html
 
 ## Лицензия
 
-[MIT](LICENSE) &copy; 2024-2026 [therudywolf](https://github.com/therudywolf)
+[GNU Affero General Public License v3.0](LICENSE) &copy; 2024-2026 VersionCheckBot contributors
 
 ---
 
@@ -243,6 +252,14 @@ docker compose up -d
 
 All settings are environment variables. See [`.env.example`](.env.example) for the full list. Only `BOT_TOKEN` is required.
 
+### Security and FOSS Hygiene
+
+Do not commit `.env`, logs, cache files, SQLite databases, backups, IDE state, or
+Python bytecode. Keep real tokens and passwords in `.env` or in your deployment
+secret store. If a secret reaches git history, rotate it at the provider.
+
+See [SECURITY.md](SECURITY.md) for details.
+
 ### License
 
-[MIT](LICENSE)
+[GNU Affero General Public License v3.0](LICENSE)
