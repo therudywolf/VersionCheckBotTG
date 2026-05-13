@@ -1,0 +1,42 @@
+╔════════════════════════════════════════════════════════════════╗
+║           КАК ЗАПУШИТЬ КОММИТ НА GITHUB                       ║
+╚════════════════════════════════════════════════════════════════╝
+
+КОММИТ УЖЕ СОЗДАН И ГОТОВ! 
+
+Статус:
+✓ Коммит ID: 8755593
+✓ Сообщение: feat: Add web management panel and complete AGPL v3 licensing
+✓ 74 файла изменено
+✓ 5190+ строк добавлено
+
+ИНСТРУКЦИЯ (на вашей машине):
+
+1. Откройте терминал/PowerShell на вашей машине
+
+2. Перейдите в папку проекта:
+   cd VersionCheckBotTG
+
+3. Убедитесь что вы на main ветке:
+   git branch
+
+4. Выполните одну из команд (выберите одну):
+
+   ВАРИАНТ A - Простой push (если GitHub Copilot установлен):
+   git push origin main
+
+   ВАРИАНТ B - Push с SSH ключом:
+   git push origin main
+
+   ВАРИАНТ C - Push с PAT токеном (если требуется):
+   git push https://YOUR_USERNAME:YOUR_PAT@github.com/therudywolf/VersionCheckBotTG.git main
+
+5. Проверьте на GitHub:
+   https://github.com/therudywolf/VersionCheckBotTG/commits/main
+
+ЕСЛИ ОШИБКА "Permission denied":
+   - Проверьте SSH ключи: ssh -T git@github.com
+   - Или используйте HTTPS с PAT токеном
+   - Или скопируйте .git/objects локально и пушьте оттуда
+
+✅ Коммит готов к отправке!

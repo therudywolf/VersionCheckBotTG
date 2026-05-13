@@ -1,4 +1,17 @@
-# VersionCheckBot
+# 🐺 VersionCheckBot
+
+> `D34D1N$1D3` :: numb but alive :: version, EOL, and CVE monitoring bot
+
+My resources:
+- [Gravatar](https://gravatar.com/therudywolf)
+- [OneToThree](https://onetothree.ru)
+- [Forest blog](https://t.me/theforestserver)
+- [X](https://x.com/therudywolf)
+- [GitHub](https://github.com/therudywolf)
+- [Twitch](https://twitch.tv/therudywolf)
+- [Reddit](https://reddit.com/user/Most-Watercress-6718)
+- [Telegram](https://t.me/rudy_wolf)
+- [YouTube](https://youtube.com/channel/UCXHkoSlaY5QaNmN_l4t0djQ)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
@@ -7,6 +20,8 @@
 
 Telegram-бот для мониторинга версий ПО, проверки End-of-Life статуса и отслеживания CVE-уязвимостей.
 Данные берутся из бесплатного API [endoflife.date](https://endoflife.date) (450+ продуктов) и [NVD](https://nvd.nist.gov/) (CVE).
+
+AGPL v3 Copyleft applies to reuse, modification, and network deployment of derived versions.
 
 > **[English version below](#english)**
 
