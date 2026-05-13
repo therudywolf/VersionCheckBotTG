@@ -1,3 +1,9 @@
+"""
+VersionCheckBot - Telegram bot for monitoring software versions and CVE vulnerabilities
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+Copyright (c) 2024 VersionCheckBot Contributors
+"""
 """User model."""
 from sqlalchemy import Column, BigInteger, String, DateTime, Boolean
 from sqlalchemy.sql import func
