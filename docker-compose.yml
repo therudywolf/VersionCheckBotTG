@@ -1,32 +1,60 @@
 services:
+
+  # ── Telegram Bot ─────────────────────────────────────────
   bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file: .env
     restart: unless-stopped
     volumes:
       - bot-data:/app/data
       - ./logs:/app/logs
       - ./cache:/app/cache
+      - ./.env:/app/.env        # shared with web panel for settings writes
     healthcheck:
-      test: ["CMD", "python", "-c", "import os, sys; sys.exit(0 if os.path.isfile('data/bot.db') else 1)"]
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.isfile('data/bot.db') else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # Optional: PostgreSQL for production
+  # ── Web Admin Panel ───────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    env_file: .env
+    restart: unless-stopped
+    ports:
+      - "${WEB_PANEL_PORT:-8000}:8000"
+    volumes:
+      - bot-data:/app/data      # shared DB with bot
+      - ./logs:/app/logs        # read logs
+      - ./cache:/app/cache      # read/clear cache
+      - ./.env:/app/.env        # read/write settings
+    depends_on:
+      - bot
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Optional: PostgreSQL ──────────────────────────────────
   # Uncomment and set DATABASE_URL=postgresql://botuser:changeme@postgres:5432/botdb in .env
   #
   # postgres:
   #   image: postgres:16-alpine
   #   environment:
-  #     POSTGRES_DB: botdb
-  #     POSTGRES_USER: botuser
+  #     POSTGRES_DB: ${POSTGRES_DB:-botdb}
+  #     POSTGRES_USER: ${POSTGRES_USER:-botuser}
   #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
   #   volumes:
   #     - postgres-data:/var/lib/postgresql/data
   #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U botuser"]
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser}"]
   #     interval: 10s
   #     timeout: 5s
   #     retries: 5

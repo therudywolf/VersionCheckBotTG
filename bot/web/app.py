@@ -1,269 +1,169 @@
 """
-VersionCheckBot Web Management Panel - FastAPI Application
+VersionCheckBot Web Management Panel — FastAPI Application
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (c) 2024 VersionCheckBot Contributors
 """
-
+import os
 import logging
-from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Depends, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
 from pathlib import Path
 
-# Set up logging
-logger = logging.getLogger(__name__)
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
-# Initialize FastAPI app
+from bot.web.auth import create_access_token, get_web_password
+from bot.web.routers import settings, users, subscriptions, broadcast, scheduler, cache, logs
+
+log = logging.getLogger(__name__)
+
 app = FastAPI(
-    title="VersionCheckBot Management Panel",
+    title="VersionCheckBot Admin Panel",
     description="Web panel for managing VersionCheckBot",
-    version="1.0.0"
+    version="2.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
 )
 
-# Add CORS middleware
+# CORS — restrict to localhost in production; relax only if behind a reverse proxy
+_allowed_origins = os.getenv(
+    "WEB_CORS_ORIGINS",
+    "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000",
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:*", "127.0.0.1:*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# ────────────────────────────────────────────────
-# Models
-# ────────────────────────────────────────────────
-
-class BotStatus(BaseModel):
-    """Bot status information"""
-    running: bool
-    uptime_seconds: float
-    database_connected: bool
-    version: str
-    timestamp: datetime
+# ── routers ──────────────────────────────────────────────────────────────────
+app.include_router(settings.router)
+app.include_router(users.router)
+app.include_router(subscriptions.router)
+app.include_router(broadcast.router)
+app.include_router(scheduler.router)
+app.include_router(cache.router)
+app.include_router(logs.router)
 
 
-class UserStats(BaseModel):
-    """User statistics"""
-    total_users: int
-    active_users_24h: int
-    total_queries: int
-    average_queries_per_user: float
+# ── auth endpoints ────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    password: str
 
 
-class SubscriptionStats(BaseModel):
-    """Subscription statistics"""
-    total_subscriptions: int
-    active_subscriptions: int
-    expiring_soon: int
+@app.post("/api/auth/login", tags=["auth"])
+def login(req: LoginRequest):
+    """Exchange password for a JWT Bearer token."""
+    if req.password != get_web_password():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password",
+        )
+    token = create_access_token()
+    return {"access_token": token, "token_type": "bearer", "expires_hours": 24}
 
 
-class SystemStats(BaseModel):
-    """Complete system statistics"""
-    bot_status: BotStatus
-    user_stats: UserStats
-    subscription_stats: SubscriptionStats
-    cache_status: dict
+# ── health ────────────────────────────────────────────────────────────────────
 
-
-# ────────────────────────────────────────────────
-# API Routes
-# ────────────────────────────────────────────────
-
-@app.get("/api/health", response_model=BotStatus)
-async def health_check():
-    """Check bot health status"""
-    from config import settings
-    from bot.database.db import init_db
-
+@app.get("/api/health", tags=["system"])
+def health():
+    """Public health probe — no auth required."""
     try:
-        db_connected = await init_db()
-    except Exception as e:
-        logger.error(f"Database connection error: {e}")
-        db_connected = False
-
-    return BotStatus(
-        running=True,
-        uptime_seconds=0,
-        database_connected=db_connected,
-        version="1.0.0",
-        timestamp=datetime.now()
-    )
-
-
-@app.get("/api/stats", response_model=SystemStats)
-async def get_system_stats():
-    """Get complete system statistics"""
-    from bot.database.db import get_session
-    from bot.models.user import User
-    from bot.models.subscription import Subscription
-    from bot.models.query_history import QueryHistory
-    from sqlalchemy import func, select
-
-    async with get_session() as session:
-        # User stats
-        total_users = await session.scalar(select(func.count(User.id)))
-        total_queries = await session.scalar(select(func.count(QueryHistory.id)))
-
-        active_24h = await session.scalar(
-            select(func.count(User.id)).where(
-                User.last_seen >= datetime.now() - timedelta(hours=24)
-            )
-        )
-
-        avg_queries = total_queries / max(total_users, 1)
-
-        # Subscription stats
-        total_subs = await session.scalar(select(func.count(Subscription.id)))
-        active_subs = await session.scalar(
-            select(func.count(Subscription.id)).where(Subscription.active == True)
-        )
-
-        expiring_subs = await session.scalar(
-            select(func.count(Subscription.id)).where(
-                Subscription.expiry_date <= datetime.now() + timedelta(days=7),
-                Subscription.expiry_date > datetime.now()
-            )
-        )
-
-        # Bot status
-        try:
-            db_connected = True
-        except:
-            db_connected = False
-
-        bot_status = BotStatus(
-            running=True,
-            uptime_seconds=0,
-            database_connected=db_connected,
-            version="1.0.0",
-            timestamp=datetime.now()
-        )
-
-        user_stats = UserStats(
-            total_users=total_users or 0,
-            active_users_24h=active_24h or 0,
-            total_queries=total_queries or 0,
-            average_queries_per_user=avg_queries or 0.0
-        )
-
-        subscription_stats = SubscriptionStats(
-            total_subscriptions=total_subs or 0,
-            active_subscriptions=active_subs or 0,
-            expiring_soon=expiring_subs or 0
-        )
-
-        return SystemStats(
-            bot_status=bot_status,
-            user_stats=user_stats,
-            subscription_stats=subscription_stats,
-            cache_status={"cached_products": 0, "cached_cves": 0}
-        )
-
-
-@app.get("/api/users")
-async def list_users(
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0)
-):
-    """List users with pagination"""
-    from bot.database.db import get_session
-    from bot.models.user import User
-    from sqlalchemy import select
-
-    async with get_session() as session:
-        users = await session.execute(
-            select(User).limit(limit).offset(offset)
-        )
-        return {
-            "users": [
-                {
-                    "id": u.id,
-                    "username": u.username,
-                    "first_name": u.first_name,
-                    "joined_at": u.joined_at,
-                    "last_seen": u.last_seen
-                }
-                for u in users.scalars()
-            ]
-        }
-
-
-@app.get("/api/subscriptions")
-async def list_subscriptions(
-    user_id: Optional[int] = None,
-    product: Optional[str] = None,
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0)
-):
-    """List subscriptions with filters"""
-    from bot.database.db import get_session
-    from bot.models.subscription import Subscription
-    from sqlalchemy import select
-
-    async with get_session() as session:
-        query = select(Subscription)
-
-        if user_id:
-            query = query.where(Subscription.user_id == user_id)
-        if product:
-            query = query.where(Subscription.product.ilike(f"%{product}%"))
-
-        subs = await session.execute(query.limit(limit).offset(offset))
-
-        return {
-            "subscriptions": [
-                {
-                    "id": s.id,
-                    "user_id": s.user_id,
-                    "product": s.product,
-                    "version": s.version,
-                    "created_at": s.created_at,
-                    "active": s.active
-                }
-                for s in subs.scalars()
-            ]
-        }
-
-
-@app.post("/api/admin/broadcast")
-async def broadcast_message(
-    message: str,
-    user_ids: Optional[list[int]] = None
-):
-    """Send broadcast message to users"""
-    from bot.services.notification_service import NotificationService
-
-    if not message or len(message) == 0:
-        raise HTTPException(status_code=400, detail="Message cannot be empty")
-
-    # In production, add proper authentication
-    logger.info(f"Broadcasting message to {len(user_ids or [])} users")
+        from bot.database.db import engine
+        with engine.connect():
+            db_ok = True
+    except Exception:
+        db_ok = False
 
     return {
-        "status": "broadcast_queued",
-        "message_preview": message[:100],
-        "recipients_count": len(user_ids or [])
+        "status": "ok",
+        "database_connected": db_ok,
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
-@app.get("/")
-async def root():
-    """Serve main page"""
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
+# ── stats (protected) ─────────────────────────────────────────────────────────
+
+@app.get("/api/stats", tags=["system"])
+def get_stats():
+    """Aggregate dashboard statistics."""
+    from bot.database.db import SessionLocal
+    from bot.models.user import User
+    from bot.models.subscription import Subscription
+    from bot.models.query_history import QueryHistory
+    from bot.models.cve_record import CVERecord
+    from sqlalchemy import func
+
+    db = SessionLocal()
+    try:
+        total_users = db.query(func.count(User.user_id)).scalar() or 0
+        active_users = (
+            db.query(func.count(User.user_id))
+            .filter(User.is_active == True)  # noqa: E712
+            .scalar() or 0
+        )
+        total_queries = db.query(func.count(QueryHistory.id)).scalar() or 0
+        total_subs = db.query(func.count(Subscription.id)).scalar() or 0
+        active_subs = (
+            db.query(func.count(Subscription.id))
+            .filter(Subscription.is_active == True)  # noqa: E712
+            .scalar() or 0
+        )
+        cve_records = db.query(func.count(CVERecord.id)).scalar() or 0
+
+        return {
+            "users": {
+                "total": total_users,
+                "active": active_users,
+            },
+            "queries": {
+                "total": total_queries,
+                "avg_per_user": round(total_queries / max(total_users, 1), 1),
+            },
+            "subscriptions": {
+                "total": total_subs,
+                "active": active_subs,
+            },
+            "cache": {
+                "cve_records": cve_records,
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    finally:
+        db.close()
 
 
-# Mount static files
-static_path = Path(__file__).parent / "static"
-if static_path.exists():
-    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+# ── static files & SPA ────────────────────────────────────────────────────────
+
+_static = Path(__file__).parent / "static"
+if _static.exists():
+    app.mount("/static", StaticFiles(directory=str(_static)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa(full_path: str = ""):
+    """Serve the SPA for all non-API routes."""
+    index = _static / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return JSONResponse({"error": "Frontend not found"}, status_code=404)
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        "bot.web.app:app",
+        host=os.getenv("WEB_PANEL_HOST", "0.0.0.0"),
+        port=int(os.getenv("WEB_PANEL_PORT", "8000")),
+        reload=False,
+    )
