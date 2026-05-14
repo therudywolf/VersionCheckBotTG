@@ -834,7 +834,7 @@ function doLogin() {
       token = data.access_token;
       localStorage.setItem('vcb_token', token);
       document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('app').style.display = '';
+      document.getElementById('app').style.display = 'block';
       initApp();
     } else {
       errEl.textContent = data.detail || 'Неверный пароль';
@@ -1342,7 +1342,7 @@ function renderPagination(id, total, limit, offset, onPage) {
       .then(r => {
         if (r.ok) {
           document.getElementById('loginScreen').style.display = 'none';
-          document.getElementById('app').style.display = '';
+          document.getElementById('app').style.display = 'block';
           initApp();
         } else {
           token = ''; localStorage.removeItem('vcb_token');
