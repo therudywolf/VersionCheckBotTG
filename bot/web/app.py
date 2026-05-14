@@ -9,13 +9,13 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from bot.web.auth import create_access_token, get_web_password
+from bot.web.auth import create_access_token, get_web_password, verify_token
 from bot.web.routers import settings, users, subscriptions, broadcast, scheduler, cache, logs
 
 log = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def health():
 # ── stats (protected) ─────────────────────────────────────────────────────────
 
 @app.get("/api/stats", tags=["system"])
-def get_stats():
+def get_stats(_: dict = Depends(verify_token)):
     """Aggregate dashboard statistics."""
     from bot.database.db import SessionLocal
     from bot.models.user import User

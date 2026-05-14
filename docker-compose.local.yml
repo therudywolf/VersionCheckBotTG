@@ -1,0 +1,11 @@
+# Local development overrides — binds the web panel to localhost:8000.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# Then open http://localhost:8000
+
+services:
+  web:
+    ports:
+      - "127.0.0.1:${WEB_PANEL_PORT:-8000}:8000"

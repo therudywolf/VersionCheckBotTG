@@ -767,7 +767,13 @@ let subsSearchTimer = null;
 let usersOffset = 0;
 let subsOffset  = 0;
 
-const API = '';  // same origin
+// Auto-detect API base when served behind a reverse-proxy subpath
+// (e.g. forestserver.ru/versionbot/). Takes the first path segment of the
+// browser URL — works whether the user lands on / or any SPA route.
+const API = (() => {
+  const segs = window.location.pathname.split('/').filter(Boolean);
+  return segs.length > 0 ? '/' + segs[0] : '';
+})();
 
 // ══════════════════════════════════════════════════════════
 //  Helpers
@@ -1289,19 +1295,16 @@ function toggleLogRefresh() {
 
 async function downloadLogs() {
   const file = document.getElementById('logFile').value;
-  const a = document.createElement('a');
-  a.href = `/api/logs/download?file=${file}&token=${encodeURIComponent(token)}`;
-  a.download = file + '.log';
-
-  // use Authorization header via fetch + blob
   try {
-    const resp = await fetch(`/api/logs/download?file=${file}`, {
+    const resp = await fetch(`${API}/api/logs/download?file=${file}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
+    const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url; link.download = file + '.log';
+    link.href = url;
+    link.download = file + '.log';
     link.click();
     URL.revokeObjectURL(url);
   } catch (e) { toast('Ошибка скачивания: ' + e.message, 'error'); }
@@ -1334,8 +1337,8 @@ function renderPagination(id, total, limit, offset, onPage) {
 // ══════════════════════════════════════════════════════════
 (function() {
   if (token) {
-    // Verify token is still valid
-    fetch(API + '/api/health', { headers: { Authorization: `Bearer ${token}` } })
+    // /api/stats is auth-protected, so a 200 here actually verifies the token
+    fetch(API + '/api/stats', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         if (r.ok) {
           document.getElementById('loginScreen').style.display = 'none';
