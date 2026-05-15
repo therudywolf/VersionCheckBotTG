@@ -1098,6 +1098,20 @@ async function saveSettings() {
   } catch (e) { toast('Ошибка сохранения: ' + e.message, 'error'); }
 }
 
+async function saveAndRestartBot() {
+  if (!confirm('Сохранить настройки и перезапустить бота?')) return;
+  await saveSettings();
+  // Give the .env write a moment to flush, then signal restart without re-asking
+  setTimeout(async () => {
+    try {
+      await api('POST', '/api/bot/restart');
+      toast('Сигнал отправлен — бот перезапустится в течение 15 сек', 'success');
+      setTimeout(loadBotStatus, 5000);
+      setTimeout(loadBotStatus, 15000);
+    } catch (e) { toast('Ошибка перезапуска: ' + e.message, 'error'); }
+  }, 500);
+}
+
 async function testBotToken() {
   const tok = document.getElementById('cfgBotToken').value.trim();
   const el = document.getElementById('tokenStatus');
