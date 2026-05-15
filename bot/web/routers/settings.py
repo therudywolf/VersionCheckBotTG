@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiohttp
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -137,7 +138,21 @@ async def update_settings(body: SettingsUpdate, _: dict = Depends(verify_token))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to write .env: {exc}")
 
-    return {"status": "ok", "updated": list(updates.keys()), "note": "Restart bot to apply changes"}
+    # Reload os.environ from .env so the running web process sees the new
+    # values immediately (e.g. broadcast endpoint picks up the new BOT_TOKEN
+    # without needing a web container restart). The bot worker still needs
+    # to be restarted via POST /api/bot/restart for its own process to pick
+    # them up.
+    try:
+        load_dotenv(override=True)
+    except Exception as exc:
+        log.warning("load_dotenv reload failed: %s", exc)
+
+    return {
+        "status": "ok",
+        "updated": list(updates.keys()),
+        "note": "Bot worker must be restarted to apply token/admin-IDs changes.",
+    }
 
 
 @router.post("/test-token")

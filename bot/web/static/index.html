@@ -247,6 +247,19 @@ tr:hover td { background: rgba(255,255,255,.02); }
 .log-INFO     { color: #a0aec0; }
 .log-DEBUG    { color: #64748b; }
 
+/* ── Onboarding / status banner ── */
+.banner { padding: 18px 22px; border-radius: var(--radius);
+  margin-bottom: 24px; display: flex; gap: 14px; align-items: center;
+  flex-wrap: wrap; border: 1px solid; }
+.banner-warning { background: rgba(245,158,11,.08); border-color: rgba(245,158,11,.4); color: #fcd34d; }
+.banner-error   { background: rgba(239,68,68,.08);  border-color: rgba(239,68,68,.4);  color: #fca5a5; }
+.banner-info    { background: rgba(59,130,246,.08); border-color: rgba(59,130,246,.4); color: #93c5fd; }
+.banner-icon { font-size: 24px; flex-shrink: 0; }
+.banner-content { flex: 1; min-width: 280px; }
+.banner-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.banner-msg { font-size: 13px; opacity: .85; line-height: 1.5; }
+.banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* ── Misc ── */
 .loading { text-align: center; color: var(--text2); padding: 40px; }
 .spinner { display: inline-block; width: 20px; height: 20px;
@@ -335,6 +348,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
       <div class="page-header">
         <h1>Dashboard</h1>
         <p>Общий обзор состояния бота</p>
+      </div>
+
+      <div id="botBanner" class="banner banner-warning" style="display:none">
+        <div class="banner-icon" id="botBannerIcon">⚠️</div>
+        <div class="banner-content">
+          <div class="banner-title" id="botBannerTitle"></div>
+          <div class="banner-msg" id="botBannerMsg"></div>
+        </div>
+        <div class="banner-actions">
+          <button class="btn btn-accent" onclick="showSection('settings')">→ Настройки</button>
+          <button class="btn btn-yellow" onclick="restartBot()">⟳ Перезапустить бота</button>
+        </div>
       </div>
 
       <div class="stats-grid" id="statsGrid">
@@ -548,12 +573,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
         </div>
       </div>
 
-      <div class="mt12" style="display:flex;gap:12px">
-        <button class="btn btn-accent" onclick="saveSettings()">💾 Сохранить все настройки</button>
+      <div class="mt12" style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-accent" onclick="saveSettings()">💾 Сохранить настройки</button>
+        <button class="btn btn-yellow" onclick="saveAndRestartBot()">💾⟳ Сохранить и перезапустить бота</button>
         <button class="btn btn-ghost" onclick="loadSettings()">↻ Сбросить изменения</button>
       </div>
       <div class="hint mt12" style="color:var(--yellow)">
-        ⚠️ После сохранения перезапустите бота, чтобы изменения вступили в силу.
+        ⚠️ Токен и ADMIN_IDS применяются только после перезапуска бота. Остальные настройки — сразу.
       </div>
     </div>
 
@@ -876,9 +902,100 @@ function showSection(name) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  Bot worker status + restart
+// ══════════════════════════════════════════════════════════
+async function loadBotStatus() {
+  try {
+    const s = await api('GET', '/api/bot/status');
+    const banner   = document.getElementById('botBanner');
+    const icon     = document.getElementById('botBannerIcon');
+    const title    = document.getElementById('botBannerTitle');
+    const msg      = document.getElementById('botBannerMsg');
+    const statusEl = document.getElementById('dashBotStatus');
+    const subEl    = document.getElementById('dashBotSub');
+    const dot      = document.getElementById('sidebarDot');
+
+    if (s.alive && s.status === 'running') {
+      // Bot is healthy — hide banner, show green indicator
+      banner.style.display = 'none';
+      statusEl.innerHTML = '<span class="dot-online"></span>Работает';
+      subEl.textContent  = s.message || 'Polling Telegram';
+      dot.className      = 'dot';
+      dot.style.background = 'var(--green)';
+
+    } else if (s.status === 'idle') {
+      // Waiting for config (placeholder token, bad token, DB error, etc.)
+      banner.className         = 'banner banner-warning';
+      banner.style.display     = '';
+      icon.textContent         = '⚠️';
+      title.textContent        = 'Бот ожидает настройки';
+      msg.textContent          = s.message || 'BOT_TOKEN не задан или невалиден. Настройте токен и перезапустите бота.';
+      statusEl.innerHTML       = '<span class="dot-offline"></span>Ожидание';
+      subEl.textContent        = 'Требуется настройка';
+      dot.className            = '';
+      dot.style.background     = 'var(--yellow)';
+
+    } else if (s.status === 'error') {
+      // Bot crashed / error state
+      banner.className         = 'banner banner-error';
+      banner.style.display     = '';
+      icon.textContent         = '🔴';
+      title.textContent        = 'Бот завершился с ошибкой';
+      msg.textContent          = s.message || 'Проверьте логи для подробностей.';
+      statusEl.innerHTML       = '<span class="dot-offline"></span>Ошибка';
+      subEl.textContent        = 'Смотрите Логи';
+      dot.className            = '';
+      dot.style.background     = 'var(--red)';
+
+    } else if (!s.alive && s.status && s.status !== 'unknown') {
+      // Had a heartbeat but it's stale (bot process died)
+      banner.className         = 'banner banner-error';
+      banner.style.display     = '';
+      icon.textContent         = '💀';
+      title.textContent        = 'Бот не отвечает';
+      msg.textContent          = `Последний heartbeat ${s.age_seconds ? Math.round(s.age_seconds) + ' сек назад' : 'неизвестно'}. Процесс, вероятно, упал.`;
+      statusEl.innerHTML       = '<span class="dot-offline"></span>Нет связи';
+      subEl.textContent        = 'Перезапустите бота';
+      dot.className            = '';
+      dot.style.background     = 'var(--red)';
+
+    } else {
+      // No heartbeat file yet (never started, or just deployed)
+      banner.className         = 'banner banner-info';
+      banner.style.display     = '';
+      icon.textContent         = 'ℹ️';
+      title.textContent        = 'Бот ещё не запущен';
+      msg.textContent          = 'Heartbeat-файл не найден. Убедитесь, что контейнер бота запущен.';
+      statusEl.innerHTML       = '<span class="dot-offline"></span>Неизвестен';
+      subEl.textContent        = 'Нет данных';
+      dot.className            = '';
+      dot.style.background     = 'var(--text2)';
+    }
+  } catch (e) {
+    // API call itself failed — don't blow up the whole dashboard
+    document.getElementById('dashBotStatus').innerHTML = '<span class="dot-offline"></span>Ошибка';
+    document.getElementById('dashBotSub').textContent  = e.message;
+  }
+}
+
+async function restartBot() {
+  if (!confirm('Отправить сигнал перезапуска боту?')) return;
+  try {
+    await api('POST', '/api/bot/restart');
+    toast('Сигнал отправлен — бот перезапустится в течение 15 сек', 'success');
+    // Re-check status after the bot has had time to restart
+    setTimeout(loadBotStatus, 5000);
+    setTimeout(loadBotStatus, 15000);
+  } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════
 //  Dashboard
 // ══════════════════════════════════════════════════════════
 async function loadDashboard() {
+  // Load bot worker status independently so a dead bot doesn't block stats
+  loadBotStatus();
+
   try {
     const [stats, health, sched, cache] = await Promise.all([
       api('GET', '/api/stats'),
@@ -886,12 +1003,6 @@ async function loadDashboard() {
       api('GET', '/api/scheduler/status'),
       api('GET', '/api/cache/stats'),
     ]);
-
-    // Stats
-    const online = health.status === 'ok';
-    document.getElementById('dashBotStatus').innerHTML =
-      `<span class="${online ? 'dot-online' : 'dot-offline'}"></span>${online ? 'Online' : 'Offline'}`;
-    document.getElementById('dashBotSub').textContent = online ? 'Всё работает' : 'Проблемы';
 
     document.getElementById('dashUsers').textContent = stats.users.total.toLocaleString();
     document.getElementById('dashUsersSub').textContent = `${stats.users.active} активных`;
@@ -915,10 +1026,6 @@ async function loadDashboard() {
     document.getElementById('cacheEolFiles').textContent = cache.eol_cache.files;
     document.getElementById('cacheEolSize').textContent = cache.eol_cache.size_kb;
     document.getElementById('cacheCveRec').textContent = cache.cve_db_cache.records;
-
-    // Sidebar dot
-    document.getElementById('sidebarDot').className = online ? 'dot' : '';
-    document.getElementById('sidebarDot').style.background = online ? 'var(--green)' : 'var(--red)';
 
   } catch (e) { toast('Ошибка загрузки dashboard: ' + e.message, 'error'); }
 }

@@ -4,6 +4,11 @@ VersionCheckBot Web Management Panel — FastAPI Application
 SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (c) 2024 VersionCheckBot Contributors
 """
+# Load .env so settings written via the panel propagate to this process
+# (and so the BOT_TOKEN used for broadcasts is always fresh).
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 import os
 import logging
 from datetime import datetime, timedelta
@@ -16,16 +21,23 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from bot.web.auth import create_access_token, get_web_password, verify_token
-from bot.web.routers import settings, users, subscriptions, broadcast, scheduler, cache, logs
+from bot.web.routers import (
+    settings, users, subscriptions, broadcast, scheduler, cache, logs, bot as bot_router
+)
 
 log = logging.getLogger(__name__)
+
+# OpenAPI docs are closed by default. Set WEB_DOCS_ENABLED=true in .env to
+# expose /api/docs and /api/redoc (you almost always don't want this in prod).
+_DOCS_ENABLED = os.getenv("WEB_DOCS_ENABLED", "false").lower() == "true"
 
 app = FastAPI(
     title="VersionCheckBot Admin Panel",
     description="Web panel for managing VersionCheckBot",
     version="2.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/api/docs" if _DOCS_ENABLED else None,
+    redoc_url="/api/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/api/openapi.json" if _DOCS_ENABLED else None,
 )
 
 # CORS — restrict to localhost in production; relax only if behind a reverse proxy
@@ -50,6 +62,7 @@ app.include_router(broadcast.router)
 app.include_router(scheduler.router)
 app.include_router(cache.router)
 app.include_router(logs.router)
+app.include_router(bot_router.router)
 
 
 # ── auth endpoints ────────────────────────────────────────────────────────────

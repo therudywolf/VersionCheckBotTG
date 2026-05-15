@@ -5,6 +5,14 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 Copyright (c) 2024 VersionCheckBot Contributors
 """
 """Main entry point for the Telegram bot."""
+# Load .env BEFORE importing config so a fresh `docker restart` picks up
+# changes the web panel may have written. `override=True` is the key —
+# Docker's env_file: directive has already pre-populated os.environ with
+# stale values from when the container was created, and load_dotenv()
+# without override does nothing in that case.
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 import asyncio
 import logging
 import signal
@@ -18,11 +26,13 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
+from telegram.error import InvalidToken
 
 from config import settings
 from bot.handlers import commands, messages, inline, callbacks
 from bot.services.version_service import VersionService
 from bot.utils.logging_config import setup_logging
+from bot.utils import heartbeat
 from bot.database.db import init_db
 from bot.scheduler.tasks import Scheduler
 
@@ -76,19 +86,33 @@ async def post_init(app_instance):
 
 def main():
     """Initialize and run the bot."""
+    heartbeat.set_status("starting", "Validating configuration")
+
     from config import validate_config
     try:
         validate_config()
         log.info("Configuration validated successfully")
     except Exception as e:
         log.error(f"Configuration validation failed: {e}")
-        raise
-    
-    if not settings.BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN не установлен")
-    
+        heartbeat.idle_wait(f"Config invalid: {e}")
+        return
+
     log.info("Initializing database...")
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        log.error(f"init_db failed: {e}", exc_info=True)
+        heartbeat.idle_wait(f"Database init failed: {e}")
+        return
+
+    # If BOT_TOKEN is a placeholder, don't burn through Docker restarts —
+    # stay alive in idle mode so the user can configure via the web panel.
+    if heartbeat.is_placeholder_token(settings.BOT_TOKEN):
+        heartbeat.idle_wait(
+            "BOT_TOKEN is a placeholder. Open the web panel → Settings, "
+            "paste a real token from @BotFather, click Save, then Restart bot."
+        )
+        return
     
     if settings.ADMIN_IDS:
         from bot.database.db import get_db
@@ -151,7 +175,9 @@ def main():
     app.add_handler(CallbackQueryHandler(callbacks.callback_query))
     
     log.info("Bot starting...")
-    
+    heartbeat.set_status("running", "Polling Telegram")
+    heartbeat.start()
+
     try:
         app.run_polling(
             close_loop=False,
@@ -159,6 +185,14 @@ def main():
         )
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
+    except InvalidToken as e:
+        log.error("Telegram rejected the bot token: %s", e)
+        heartbeat.idle_wait(f"Telegram rejected token: {e}")
+        return
+    except Exception as e:
+        log.error("Unhandled error in run_polling: %s", e, exc_info=True)
+        heartbeat.set_status("error", str(e))
+        raise
     finally:
         if shutdown_event and not shutdown_event.is_set():
             shutdown_event.set()
